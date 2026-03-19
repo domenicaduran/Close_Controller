@@ -1,0 +1,3 @@
+-- No SQL changes required for SQLite because Prisma stores enum values as text.
+-- This migration records the addition of WAITING_ON_CLIENT to the TaskStatus enum
+-- in the Prisma schema and generated client.

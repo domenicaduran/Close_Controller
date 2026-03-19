@@ -40,6 +40,7 @@ import {
 import {
   clientSchema,
   importUploadSchema,
+  manualTaskSchema,
   periodGenerationSchema,
   rollforwardSchema,
   templateSchema,
@@ -132,6 +133,62 @@ export async function deleteClientAction(formData: FormData) {
   revalidatePath("/tasks");
   revalidatePath("/periods");
   revalidatePath("/");
+}
+
+export async function createManualTaskAction(formData: FormData) {
+  const parsed = manualTaskSchema.safeParse({
+    periodInstanceId: stringValue(formData, "periodInstanceId"),
+    title: stringValue(formData, "title"),
+    description: optionalString(formData, "description"),
+    category: optionalString(formData, "category"),
+    assignee: optionalString(formData, "assignee"),
+    dueDate: optionalString(formData, "dueDate"),
+    notes: optionalString(formData, "notes"),
+    blockedReason: optionalString(formData, "blockedReason"),
+    priority: stringValue(formData, "priority") as Priority,
+    status: stringValue(formData, "status") as TaskStatus,
+  });
+
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Could not create task.");
+  }
+
+  const period = await prisma.periodInstance.findUniqueOrThrow({
+    where: { id: parsed.data.periodInstanceId },
+    include: { taskInstances: { select: { sortOrder: true } } },
+  });
+
+  const nextSortOrder =
+    Math.max(0, ...period.taskInstances.map((task) => task.sortOrder)) + 10;
+
+  const task = await prisma.taskInstance.create({
+    data: {
+      periodInstanceId: parsed.data.periodInstanceId,
+      title: parsed.data.title,
+      description: parsed.data.description ?? null,
+      category: parsed.data.category ?? null,
+      assignee: parsed.data.assignee ?? null,
+      dueDate: parsed.data.dueDate ? parseISO(parsed.data.dueDate) : null,
+      notes: parsed.data.notes ?? null,
+      blockedReason: parsed.data.blockedReason ?? null,
+      sourceType: TaskSourceType.MANUAL,
+      priority: parsed.data.priority,
+      status: parsed.data.status,
+      completedAt: parsed.data.status === TaskStatus.COMPLETE ? new Date() : null,
+      sortOrder: nextSortOrder,
+      templateTaskSnapshot: JSON.stringify({
+        createdFrom: "manual",
+        periodId: period.id,
+      }),
+    },
+  });
+
+  revalidatePath("/tasks");
+  revalidatePath(`/tasks/${task.id}`);
+  revalidatePath(`/periods/${period.id}`);
+  revalidatePath("/periods");
+  revalidatePath("/");
+  redirect(`/tasks/${task.id}`);
 }
 
 export async function createTemplateAction(formData: FormData) {
@@ -393,6 +450,7 @@ export async function updateTaskStatusAction(formData: FormData) {
 
   revalidatePath(`/periods/${periodId}`);
   revalidatePath("/periods");
+  revalidatePath("/tasks");
   revalidatePath("/");
 }
 
@@ -419,6 +477,30 @@ export async function updateTaskDetailsAction(formData: FormData) {
 
   revalidatePath(`/periods/${periodId}`);
   revalidatePath("/periods");
+}
+
+export async function deleteTaskAction(formData: FormData) {
+  const id = stringValue(formData, "id");
+  const periodId = stringValue(formData, "periodId");
+
+  await prisma.$transaction([
+    prisma.taskInstance.updateMany({
+      where: { carryforwardFromTaskId: id },
+      data: { carryforwardFromTaskId: null },
+    }),
+    prisma.taskInstance.updateMany({
+      where: { dependencyTaskId: id },
+      data: { dependencyTaskId: null },
+    }),
+    prisma.taskInstance.delete({
+      where: { id },
+    }),
+  ]);
+
+  revalidatePath("/tasks");
+  revalidatePath(`/periods/${periodId}`);
+  revalidatePath("/periods");
+  revalidatePath("/");
 }
 
 export async function addTaskCommentAction(formData: FormData) {

@@ -4,6 +4,8 @@ import { createTemplateAction } from "@/app/actions";
 import { Button, Field, Input, PageHeader, Panel, Select, TextArea } from "@/components/ui";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export default async function TemplatesPage() {
   const templates = await prisma.workflowTemplate.findMany({
     include: {

@@ -5,6 +5,8 @@ import { Button, Field, Input, PageHeader, Panel, Select } from "@/components/ui
 import { formatDateTime } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export default async function ImportsPage() {
   const batches = await prisma.importBatch.findMany({
     include: { client: true },

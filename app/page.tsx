@@ -4,6 +4,8 @@ import { MetricCard, PageHeader, Panel, StatusBadge } from "@/components/ui";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export default async function HomePage() {
   const today = new Date();
 
@@ -33,6 +35,7 @@ export default async function HomePage() {
           gte: new Date(today.getFullYear(), today.getMonth(), today.getDate()),
           lt: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1),
         },
+        status: { not: "COMPLETE" },
       },
       include: {
         periodInstance: { include: { client: true } },

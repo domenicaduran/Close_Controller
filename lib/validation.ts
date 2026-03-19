@@ -1,4 +1,4 @@
-import { ImportType, RecurrenceType, WorkflowType } from "@prisma/client";
+import { ImportType, Priority, RecurrenceType, TaskStatus, WorkflowType } from "@prisma/client";
 import { z } from "zod";
 
 export const clientSchema = z.object({
@@ -65,4 +65,17 @@ export const rollforwardSchema = z.object({
 
 export const importUploadSchema = z.object({
   importType: z.nativeEnum(ImportType),
+});
+
+export const manualTaskSchema = z.object({
+  periodInstanceId: z.string().min(1, "Choose a period."),
+  title: z.string().min(1, "Task title is required."),
+  description: z.string().optional(),
+  category: z.string().optional(),
+  assignee: z.string().optional(),
+  dueDate: z.string().optional(),
+  notes: z.string().optional(),
+  blockedReason: z.string().optional(),
+  priority: z.nativeEnum(Priority),
+  status: z.nativeEnum(TaskStatus),
 });

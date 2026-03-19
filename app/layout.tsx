@@ -11,8 +11,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Accounting Workflow Manager",
-  description: "Local-first recurring accounting operations across clients and close periods.",
+  title: "Close Controller",
+  description: "Premium recurring accounting operations software for close management, audit support, and controller workflows.",
 };
 
 export default function RootLayout({

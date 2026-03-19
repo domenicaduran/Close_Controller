@@ -1,13 +1,16 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
   addEvidenceLinkAction,
   addTaskCommentAction,
+  deleteTaskAction,
   rollforwardPeriodAction,
   setPeriodStatusAction,
   updateTaskDetailsAction,
   updateTaskStatusAction,
 } from "@/app/actions";
+import { ClientActionButton } from "@/components/client-action-button";
 import {
   Button,
   Field,
@@ -147,14 +150,16 @@ export default async function PeriodDetailPage({
           </div>
         </Panel>
 
-        <Panel title="Task Board" subtitle="Generated, imported, and carryforward work is labeled clearly in the list below.">
+        <Panel title="Task Board" subtitle="This period controls the generated task set. Open any task to manage its details in a dedicated task workspace.">
           <div className="space-y-4">
             {period.taskInstances.map((task) => (
               <div key={task.id} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="text-lg font-semibold text-slate-950">{task.title}</h3>
+                      <Link href={`/tasks/${task.id}`} className="text-lg font-semibold text-slate-950 hover:text-[#2563EB]">
+                        {task.title}
+                      </Link>
                       <StatusBadge status={task.status} />
                       <SourceBadge sourceType={task.sourceType} />
                     </div>
@@ -176,18 +181,33 @@ export default async function PeriodDetailPage({
                         Normal generated task from active template
                       </p>
                     ) : null}
+                    <Link href={`/tasks/${task.id}`} className="mt-3 inline-block text-sm font-semibold text-[#2563EB]">
+                      Open Task Workspace
+                    </Link>
                   </div>
-                  <form action={updateTaskStatusAction} className="flex gap-2">
-                    <input type="hidden" name="id" value={task.id} />
-                    <input type="hidden" name="periodId" value={period.id} />
-                    <Select name="status" defaultValue={task.status} className="min-w-44">
-                      <option value="NOT_STARTED">Not Started</option>
-                      <option value="IN_PROGRESS">In Progress</option>
-                      <option value="BLOCKED">Blocked</option>
-                      <option value="COMPLETE">Complete</option>
-                    </Select>
-                    <Button type="submit">Update</Button>
-                  </form>
+                  <div className="flex flex-col items-end gap-2">
+                    <form action={updateTaskStatusAction} className="flex gap-2">
+                      <input type="hidden" name="id" value={task.id} />
+                      <input type="hidden" name="periodId" value={period.id} />
+                      <Select name="status" defaultValue={task.status} className="min-w-44">
+                        <option value="NOT_STARTED">Not Started</option>
+                        <option value="IN_PROGRESS">In Progress</option>
+                        <option value="BLOCKED">Blocked</option>
+                        <option value="WAITING_ON_CLIENT">Waiting on Client</option>
+                        <option value="COMPLETE">Complete</option>
+                      </Select>
+                      <Button type="submit">Update</Button>
+                    </form>
+                    <form action={deleteTaskAction}>
+                      <input type="hidden" name="id" value={task.id} />
+                      <input type="hidden" name="periodId" value={period.id} />
+                      <ClientActionButton
+                        actionLabel="Delete Task"
+                        variant="danger"
+                        confirmMessage="Delete this task? This will also remove related notes and evidence links. Carryforward and dependency references will be cleared."
+                      />
+                    </form>
+                  </div>
                 </div>
 
                 <form action={updateTaskDetailsAction} className="mt-4 grid gap-4 md:grid-cols-2">

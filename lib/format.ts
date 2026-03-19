@@ -19,6 +19,8 @@ export function statusTone(status: string) {
       return "border-[#A7F3D0] text-[#059669] bg-[#ECFDF5]";
     case "BLOCKED":
       return "border-[#FED7AA] text-[#D97706] bg-[#FFF7ED]";
+    case "WAITING_ON_CLIENT":
+      return "border-[#E9D5FF] text-[#7C3AED] bg-[#F5F3FF]";
     case "OVERDUE":
       return "border-[#FECACA] text-[#DC2626] bg-[#FEF2F2]";
     case "IN_PROGRESS":

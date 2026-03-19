@@ -297,7 +297,7 @@ async function main() {
       description: "One-off imported task batch item from sample close checklist.",
       assignee: "Alex Rivera",
       sourceType: TaskSourceType.IMPORTED,
-      status: TaskStatus.IN_PROGRESS,
+      status: TaskStatus.WAITING_ON_CLIENT,
       priority: Priority.HIGH,
       sortOrder: 999,
       templateTaskSnapshot: JSON.stringify({ importBatchId: importedPbcBatch.id }),

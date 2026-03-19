@@ -16,7 +16,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
         <aside className="sticky top-5 h-[calc(100vh-2.5rem)] w-72 rounded-2xl border border-slate-800 bg-slate-900 px-6 py-6 text-slate-100 shadow-[0_8px_24px_rgba(15,23,42,0.16)]">
           <div className="space-y-2">
             <p className="text-[11px] uppercase tracking-[0.28em] text-slate-400">
-              Accounting Workflow Manager
+              Close Controller
             </p>
             <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-white">
               Close Controller

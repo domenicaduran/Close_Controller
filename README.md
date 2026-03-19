@@ -1,6 +1,6 @@
-# Accounting Workflow Manager
+# Close Controller
 
-Accounting Workflow Manager is a local-first web app for recurring accounting operations across multiple clients. It is designed for month-end close, quarter-end close, year-end close, audit PBC tracking, monthly tax work, and one-off accounting projects.
+Close Controller is a local-first web app for recurring accounting operations across multiple clients. It is designed for month-end close, quarter-end close, year-end close, audit PBC tracking, monthly tax work, and one-off accounting projects.
 
 ## Stack
 
@@ -32,45 +32,43 @@ Accounting Workflow Manager is a local-first web app for recurring accounting op
 npm install
 ```
 
-2. Generate the Prisma client:
+2. Copy `.env.example` to `.env` if needed and ensure `DATABASE_URL` points to the local SQLite file:
+
+```bash
+DATABASE_URL="file:./dev.db"
+```
+
+3. Generate the Prisma client:
 
 ```bash
 npm run db:generate
 ```
 
-3. Create the local SQLite database.
-
-Prisma's schema engine had issues in this environment, so the repo includes a checked-in SQL migration at [prisma/migrations/202603191030_init/migration.sql](/c:/Users/Domenica%20Duran/.vscode/Close_Controller/prisma/migrations/202603191030_init/migration.sql). If `prisma migrate dev` works on your machine, you can use:
+4. Apply the SQLite migration history:
 
 ```bash
-npm run db:migrate -- --name init
+npm run db:deploy
 ```
 
-If not, the SQLite database can be created by applying that SQL to `prisma/dev.db`, then seeding:
+5. Seed demo data:
 
 ```bash
 npm run db:seed
 ```
 
-4. Seed demo data:
-
-```bash
-npm run db:seed
-```
-
-5. Generate sample import files:
+6. Generate sample import files:
 
 ```bash
 npm run sample-data
 ```
 
-6. Start the app:
+7. Start the app:
 
 ```bash
 npm run dev
 ```
 
-7. Production verification:
+8. Production verification:
 
 ```bash
 npm run lint
@@ -81,7 +79,8 @@ npm run build
 
 - Prisma schema: [prisma/schema.prisma](/c:/Users/Domenica%20Duran/.vscode/Close_Controller/prisma/schema.prisma)
 - Seed script: [prisma/seed.ts](/c:/Users/Domenica%20Duran/.vscode/Close_Controller/prisma/seed.ts)
-- Local database path: `prisma/dev.db`
+- Active SQLite database path: `prisma/dev.db`
+- Active SQLite migrations live in `prisma/migrations`
 
 ## Seeded demo data
 
@@ -90,7 +89,7 @@ npm run build
 - 1 quarter-end template
 - 1 audit PBC template
 - 1 generated monthly period for March 2026
-- blocked and complete task examples
+- blocked, waiting on client, and complete task examples
 - sample imported PBC batch record
 - sample imported close checklist batch record
 

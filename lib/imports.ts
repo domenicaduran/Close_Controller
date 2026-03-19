@@ -85,6 +85,9 @@ export type ImportValidationResult = {
   ignoredRowCount: number;
 };
 
+const MIN_IMPORT_YEAR = 2000;
+const MAX_IMPORT_YEAR = 2100;
+
 function normalizeHeader(header: string) {
   return header.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
 }
@@ -96,6 +99,29 @@ export function buildHeaderSignature(headers: string[]) {
 function sanitizeCell(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).replace(/\r?\n/g, " ").trim();
+}
+
+function isPlausibleImportDate(date: Date) {
+  const year = date.getUTCFullYear();
+  return year >= MIN_IMPORT_YEAR && year <= MAX_IMPORT_YEAR;
+}
+
+function excelSerialToDate(serial: number) {
+  const parsed = XLSX.SSF.parse_date_code(serial);
+  if (!parsed) return null;
+
+  const date = new Date(
+    Date.UTC(
+      parsed.y,
+      Math.max(0, (parsed.m ?? 1) - 1),
+      parsed.d ?? 1,
+      parsed.H ?? 0,
+      parsed.M ?? 0,
+      parsed.S ?? 0,
+    ),
+  );
+
+  return isValid(date) ? date : null;
 }
 
 function isBlankRow(row: Record<string, string>) {
@@ -155,9 +181,21 @@ export function parseTolerantDate(rawValue?: string | null): TolerantDateResult 
     return { parsed: null, isoValue: null, error: null };
   }
 
+  if (/^\d+(\.\d+)?$/.test(value)) {
+    const serial = Number(value);
+    const excelDate = Number.isFinite(serial) ? excelSerialToDate(serial) : null;
+
+    if (excelDate && isPlausibleImportDate(excelDate)) {
+      return {
+        parsed: excelDate,
+        isoValue: excelDate.toISOString(),
+        error: null,
+      };
+    }
+  }
+
   const parsers = [
     () => parseISO(value),
-    () => new Date(value),
     () => parseDateFns(value, "M/d/yyyy", new Date()),
     () => parseDateFns(value, "M/d/yy", new Date()),
     () => parseDateFns(value, "MM/dd/yyyy", new Date()),
@@ -169,7 +207,7 @@ export function parseTolerantDate(rawValue?: string | null): TolerantDateResult 
 
   for (const parser of parsers) {
     const parsed = parser();
-    if (isValid(parsed)) {
+    if (isValid(parsed) && isPlausibleImportDate(parsed)) {
       return {
         parsed,
         isoValue: parsed.toISOString(),
