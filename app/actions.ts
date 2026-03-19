@@ -121,6 +121,19 @@ export async function toggleClientArchiveAction(formData: FormData) {
   revalidatePath("/");
 }
 
+export async function deleteClientAction(formData: FormData) {
+  const id = stringValue(formData, "id");
+
+  await prisma.client.delete({
+    where: { id },
+  });
+
+  revalidatePath("/clients");
+  revalidatePath("/tasks");
+  revalidatePath("/periods");
+  revalidatePath("/");
+}
+
 export async function createTemplateAction(formData: FormData) {
   const parsed = templateSchema.safeParse({
     name: stringValue(formData, "name"),

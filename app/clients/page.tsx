@@ -1,8 +1,11 @@
 import Link from "next/link";
 
-import { createClientAction, toggleClientArchiveAction } from "@/app/actions";
+import { createClientAction, deleteClientAction, toggleClientArchiveAction } from "@/app/actions";
+import { ClientActionButton } from "@/components/client-action-button";
 import { Button, Field, Input, PageHeader, Panel } from "@/components/ui";
 import { prisma } from "@/lib/prisma";
+
+export const dynamic = "force-dynamic";
 
 export default async function ClientsPage() {
   const clients = await prisma.client.findMany({
@@ -21,7 +24,7 @@ export default async function ClientsPage() {
     <div className="space-y-6 py-2">
       <PageHeader
         title="Clients"
-        description="Create, edit, archive, and assign workflow templates to each client."
+        description="Create, edit, archive, delete, and manage workflow relationships for each client."
       />
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.35fr]">
@@ -47,9 +50,9 @@ export default async function ClientsPage() {
         </Panel>
 
         <Panel title="Client Directory" subtitle="Desktop-optimized view of active and archived clients.">
-          <div className="overflow-hidden rounded-2xl border border-slate-200">
+          <div className="overflow-hidden rounded-2xl border border-[#E5E7EB]">
             <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-100 text-slate-600">
+              <thead className="bg-[#F9FAFB] text-[#6B7280]">
                 <tr>
                   <th className="px-4 py-3 font-medium">Client</th>
                   <th className="px-4 py-3 font-medium">Templates</th>
@@ -60,35 +63,41 @@ export default async function ClientsPage() {
               </thead>
               <tbody>
                 {clients.map((client) => (
-                  <tr key={client.id} className="border-t border-slate-200 text-slate-700">
+                  <tr key={client.id} className="border-t border-[#E5E7EB] text-[#374151]">
                     <td className="px-4 py-3">
-                      <Link href={`/clients/${client.id}`} className="font-semibold text-slate-950">
+                      <Link href={`/clients/${client.id}`} className="font-semibold text-[#1F2937]">
                         {client.name}
                       </Link>
-                      <div className="text-xs text-slate-500">
-                        {client.primaryContact || "No contact"} {client.code ? `· ${client.code}` : ""}
+                      <div className="text-xs text-[#6B7280]">
+                        {client.primaryContact || "No contact"} {client.code ? `- ${client.code}` : ""}
                       </div>
                     </td>
                     <td className="px-4 py-3">{client.templateAssignments.length}</td>
                     <td className="px-4 py-3">{client.periodInstances.length}</td>
                     <td className="px-4 py-3">{client.isArchived ? "Archived" : "Active"}</td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <Link
                           href={`/clients/${client.id}`}
-                          className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-900"
+                          className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 text-xs font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-[#CBD5E1] hover:bg-[#F9FAFB]"
                         >
                           Open
                         </Link>
                         <form action={toggleClientArchiveAction}>
                           <input type="hidden" name="id" value={client.id} />
                           <input type="hidden" name="isArchived" value={String(client.isArchived)} />
-                          <button
-                            type="submit"
-                            className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-900"
-                          >
-                            {client.isArchived ? "Restore" : "Archive"}
-                          </button>
+                          <ClientActionButton
+                            actionLabel={client.isArchived ? "Restore" : "Archive"}
+                            variant={client.isArchived ? "neutral" : "warning"}
+                          />
+                        </form>
+                        <form action={deleteClientAction}>
+                          <input type="hidden" name="id" value={client.id} />
+                          <ClientActionButton
+                            actionLabel="Delete"
+                            variant="danger"
+                            confirmMessage="Deleting this client will also delete all related periods, tasks, PBC items, imports, and history for this client. Continue?"
+                          />
                         </form>
                       </div>
                     </td>
