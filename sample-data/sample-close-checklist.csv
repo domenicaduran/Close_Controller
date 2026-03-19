@@ -1,0 +1,3 @@
+Task,Description,Category,Owner,Due Day,Recurrence,Dependency,Notes,Priority
+"Reconcile operating cash","Tie bank activity to GL","Cash","Domenica","5","Monthly","","Need prior month workbook","Critical"
+"Review prepaid expenses","Analyze additions and amortization","Expenses","Reviewer","6","Monthly","Reconcile operating cash","","High"

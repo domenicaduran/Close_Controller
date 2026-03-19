@@ -1,0 +1,325 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkflowType {
+  MONTH_END
+  QUARTER_END
+  YEAR_END
+  AUDIT_PBC
+  TAX
+  ONE_OFF
+}
+
+enum RecurrenceType {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+  ONE_TIME
+}
+
+enum DueDateRuleType {
+  NONE
+  DAY_OF_MONTH
+  BUSINESS_DAY_OFFSET_FROM_PERIOD_END
+  FIXED_CALENDAR_DATE
+  OFFSET_FROM_PERIOD_START
+}
+
+enum CarryforwardBehavior {
+  NONE
+  SURFACE_IF_INCOMPLETE
+  ALWAYS_CREATE
+  COPY_NOTES
+}
+
+enum PeriodStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETE
+  ARCHIVED
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  COMPLETE
+}
+
+enum TaskSourceType {
+  TEMPLATE_GENERATED
+  IMPORTED
+  CARRYFORWARD
+  MANUAL
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ImportType {
+  TEMPLATE
+  TASK_BATCH
+  PBC_ITEMS
+}
+
+enum ImportStatus {
+  PREVIEW
+  VALIDATED
+  COMMITTED
+  FAILED
+}
+
+enum PBCRequestStatus {
+  NOT_REQUESTED
+  REQUESTED
+  RECEIVED
+  UNDER_REVIEW
+  CLEARED
+}
+
+model Client {
+  id                   String                     @id @default(cuid())
+  name                 String
+  code                 String?                    @unique
+  industry             String?
+  primaryContact       String?
+  email                String?
+  isArchived           Boolean                    @default(false)
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  templateAssignments  ClientTemplateAssignment[]
+  periodInstances      PeriodInstance[]
+  importBatches        ImportBatch[]
+  pbcRequestItems      PBCRequestItem[]
+
+  @@index([isArchived, name])
+}
+
+model WorkflowTemplate {
+  id                  String                     @id @default(cuid())
+  name                String
+  workflowType        WorkflowType
+  description         String?
+  recurrenceType      RecurrenceType
+  periodLabelFormat   String?
+  isActive            Boolean                    @default(true)
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  tasks               TemplateTask[]
+  clientAssignments   ClientTemplateAssignment[]
+  periodInstances     PeriodInstance[]
+  importBatches       ImportBatch[]
+
+  @@index([workflowType, isActive])
+}
+
+model ClientTemplateAssignment {
+  id          String           @id @default(cuid())
+  clientId    String
+  templateId  String
+  createdAt   DateTime         @default(now())
+  client      Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  template    WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, templateId])
+  @@index([templateId])
+}
+
+model TemplateTask {
+  id                       String               @id @default(cuid())
+  templateId               String
+  title                    String
+  description              String?
+  category                 String?
+  defaultOwner             String?
+  recurrenceType           RecurrenceType
+  dueDateRuleType          DueDateRuleType      @default(NONE)
+  dueDayOfMonth            Int?
+  businessDayOffset        Int?
+  fixedMonth               Int?
+  fixedDay                 Int?
+  offsetFromPeriodStart    Int?
+  dependencyTemplateTaskId String?
+  sortOrder                Int                  @default(0)
+  isActive                 Boolean              @default(true)
+  carryforwardBehavior     CarryforwardBehavior @default(NONE)
+  copyNotesForward         Boolean              @default(false)
+  evidenceRequired         Boolean              @default(false)
+  reviewerRequired         Boolean              @default(false)
+  defaultPriority          Priority             @default(MEDIUM)
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  template                 WorkflowTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  dependencyTemplateTask   TemplateTask?        @relation("TemplateTaskDependency", fields: [dependencyTemplateTaskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dependentTasks           TemplateTask[]       @relation("TemplateTaskDependency")
+  taskInstances            TaskInstance[]
+
+  @@index([templateId, sortOrder])
+}
+
+model PeriodInstance {
+  id                    String           @id @default(cuid())
+  clientId              String
+  templateId            String
+  label                 String
+  periodKey             String
+  workflowType          WorkflowType
+  status                PeriodStatus     @default(OPEN)
+  periodStart           DateTime
+  periodEnd             DateTime
+  generatedAt           DateTime         @default(now())
+  templateSnapshot      String
+  sourcePeriodId        String?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  client                Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  template              WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  sourcePeriod          PeriodInstance?  @relation("PeriodRollforward", fields: [sourcePeriodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  rolledForwardPeriods  PeriodInstance[] @relation("PeriodRollforward")
+  taskInstances         TaskInstance[]
+  pbcRequestItems       PBCRequestItem[]
+
+  @@unique([clientId, templateId, periodKey])
+  @@index([clientId, status])
+  @@index([templateId, periodStart])
+}
+
+model TaskInstance {
+  id                    String         @id @default(cuid())
+  periodInstanceId      String
+  templateTaskId        String?
+  title                 String
+  description           String?
+  category              String?
+  assignee              String?
+  dueDate               DateTime?
+  status                TaskStatus     @default(NOT_STARTED)
+  completedAt           DateTime?
+  notes                 String?
+  reviewerSignoff       String?
+  reviewerSignedOffAt   DateTime?
+  sourceType            TaskSourceType @default(TEMPLATE_GENERATED)
+  priority              Priority       @default(MEDIUM)
+  blockedReason         String?
+  sortOrder             Int            @default(0)
+  carryforwardFromTaskId String?
+  dependencyTaskId      String?
+  evidenceRequired      Boolean        @default(false)
+  reviewerRequired      Boolean        @default(false)
+  templateTaskSnapshot  String
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  periodInstance        PeriodInstance @relation(fields: [periodInstanceId], references: [id], onDelete: Cascade)
+  templateTask          TemplateTask?  @relation(fields: [templateTaskId], references: [id], onDelete: SetNull)
+  carryforwardFromTask  TaskInstance?  @relation("TaskCarryforward", fields: [carryforwardFromTaskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  carryforwardChildren  TaskInstance[] @relation("TaskCarryforward")
+  dependencyTask        TaskInstance?  @relation("TaskDependency", fields: [dependencyTaskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dependentTasks        TaskInstance[] @relation("TaskDependency")
+  comments              TaskNote[]
+  evidenceLinks         EvidenceLink[]
+
+  @@index([periodInstanceId, status])
+  @@index([dueDate])
+  @@index([sourceType])
+}
+
+model TaskNote {
+  id             String       @id @default(cuid())
+  taskInstanceId String
+  body           String
+  copiedForward  Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  taskInstance   TaskInstance @relation(fields: [taskInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([taskInstanceId, createdAt])
+}
+
+model EvidenceLink {
+  id             String       @id @default(cuid())
+  taskInstanceId String
+  label          String
+  url            String
+  createdAt      DateTime     @default(now())
+  taskInstance   TaskInstance @relation(fields: [taskInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([taskInstanceId])
+}
+
+model ImportBatch {
+  id                 String          @id @default(cuid())
+  clientId           String?
+  templateId         String?
+  fileName           String
+  importType         ImportType
+  headerSignature    String?
+  status             ImportStatus    @default(PREVIEW)
+  columnMappingJson  String?
+  validationJson     String?
+  committedAt        DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  client             Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  template           WorkflowTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  rows               ImportRow[]
+
+  @@index([status, importType])
+}
+
+model ImportMappingPreset {
+  id              String       @id @default(cuid())
+  name            String
+  importType      ImportType
+  headerSignature String
+  mappingJson     String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  lastUsedAt      DateTime?
+
+  @@index([importType, headerSignature])
+  @@unique([importType, name])
+}
+
+model ImportRow {
+  id            String       @id @default(cuid())
+  importBatchId String
+  rowNumber     Int
+  rawJson       String
+  normalizedJson String?
+  validationJson String?
+  createdAt     DateTime     @default(now())
+  importBatch   ImportBatch  @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+
+  @@index([importBatchId, rowNumber])
+}
+
+model PBCRequestItem {
+  id             String           @id @default(cuid())
+  clientId       String
+  periodInstanceId String?
+  importBatchId  String?
+  requestNumber  String?
+  description    String
+  requestedFrom  String?
+  dateRequested  DateTime?
+  dateReceived   DateTime?
+  status         PBCRequestStatus @default(NOT_REQUESTED)
+  fileLink       String?
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  client         Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  periodInstance PeriodInstance?  @relation(fields: [periodInstanceId], references: [id], onDelete: SetNull)
+
+  @@index([clientId, status])
+  @@index([periodInstanceId])
+}

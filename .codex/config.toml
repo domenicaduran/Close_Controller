@@ -1,0 +1,10 @@
+model = "gpt-5.4"
+
+[tools]
+approval_policy = "on-request"
+
+[project]
+name = "accounting-workflow-manager"
+
+[instructions]
+agents_file = "AGENTS.md"
