@@ -12,8 +12,8 @@ export async function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[#F7F8FA]">
-      <div className="mx-auto flex min-h-screen max-w-[1600px] gap-6 px-5 py-5">
-        <aside className="sticky top-5 h-[calc(100vh-2.5rem)] w-72 rounded-2xl border border-slate-800 bg-slate-900 px-6 py-6 text-slate-100 shadow-[0_8px_24px_rgba(15,23,42,0.16)]">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1920px] gap-4 px-4 py-4 2xl:max-w-none">
+        <aside className="sticky top-4 h-[calc(100vh-2rem)] w-[17.5rem] rounded-2xl border border-slate-800 bg-slate-900 px-5 py-5 text-slate-100 shadow-[0_8px_24px_rgba(15,23,42,0.16)]">
           <div className="space-y-2">
             <p className="text-[11px] uppercase tracking-[0.28em] text-slate-400">
               Close Controller
@@ -35,7 +35,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
           </div>
         </aside>
 
-        <main className="flex-1 px-1 py-1">{children}</main>
+        <main className="min-w-0 flex-1 py-1">{children}</main>
       </div>
     </div>
   );

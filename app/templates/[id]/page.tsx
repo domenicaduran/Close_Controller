@@ -1,6 +1,13 @@
 import { notFound } from "next/navigation";
 
-import { createTemplateTaskAction, updateTemplateAction } from "@/app/actions";
+import {
+  createTemplateTaskAction,
+  deleteTemplateAction,
+  deleteTemplateTaskAction,
+  updateTemplateAction,
+  updateTemplateTaskAction,
+} from "@/app/actions";
+import { ClientActionButton } from "@/components/client-action-button";
 import { Button, Field, Input, PageHeader, Panel, Select, TextArea } from "@/components/ui";
 import { prisma } from "@/lib/prisma";
 
@@ -26,6 +33,16 @@ export default async function TemplateDetailPage({
       <PageHeader
         title={template.name}
         description="Edit the template definition and maintain the reusable checklist task set."
+        action={
+          <form action={deleteTemplateAction}>
+            <input type="hidden" name="id" value={template.id} />
+            <ClientActionButton
+              actionLabel="Delete Template"
+              variant="danger"
+              confirmMessage="Delete this template? If it has already been used to generate periods, deletion will be blocked."
+            />
+          </form>
+        }
       />
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.35fr]">
@@ -159,33 +176,128 @@ export default async function TemplateDetailPage({
         </Panel>
       </div>
 
-      <Panel title="Template Tasks" subtitle="Active checklist tasks are snapshotted into period instances at generation time.">
-        <div className="overflow-hidden rounded-2xl border border-slate-200">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-100 text-slate-600">
-              <tr>
-                <th className="px-4 py-3 font-medium">Order</th>
-                <th className="px-4 py-3 font-medium">Task</th>
-                <th className="px-4 py-3 font-medium">Category</th>
-                <th className="px-4 py-3 font-medium">Due Rule</th>
-                <th className="px-4 py-3 font-medium">Carryforward</th>
-              </tr>
-            </thead>
-            <tbody>
-              {template.tasks.map((task) => (
-                <tr key={task.id} className="border-t border-slate-200 text-slate-700">
-                  <td className="px-4 py-3">{task.sortOrder}</td>
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-950">{task.title}</p>
-                    <p className="text-xs text-slate-500">{task.defaultOwner || "Unassigned"}</p>
-                  </td>
-                  <td className="px-4 py-3">{task.category || "General"}</td>
-                  <td className="px-4 py-3">{task.dueDateRuleType.replaceAll("_", " ")}</td>
-                  <td className="px-4 py-3">{task.carryforwardBehavior.replaceAll("_", " ")}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <Panel title="Template Tasks" subtitle="Edit or remove reusable checklist tasks before they are generated into future periods.">
+        <div className="space-y-4">
+          {template.tasks.map((task) => (
+            <div key={task.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-lg font-semibold text-slate-950">{task.title}</p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {task.category || "General"} - {task.defaultOwner || "Unassigned"} - Order {task.sortOrder}
+                  </p>
+                </div>
+                <form action={deleteTemplateTaskAction}>
+                  <input type="hidden" name="id" value={task.id} />
+                  <input type="hidden" name="templateId" value={template.id} />
+                  <ClientActionButton
+                    actionLabel="Delete Task"
+                    variant="danger"
+                    confirmMessage="Delete this template task? Tasks that depend on it will have their dependency cleared."
+                  />
+                </form>
+              </div>
+
+              <form action={updateTemplateTaskAction} className="grid gap-4 md:grid-cols-2">
+                <input type="hidden" name="id" value={task.id} />
+                <input type="hidden" name="templateId" value={template.id} />
+                <div className="md:col-span-2">
+                  <Field label="Task title">
+                    <Input name="title" defaultValue={task.title} required />
+                  </Field>
+                </div>
+                <Field label="Category">
+                  <Input name="category" defaultValue={task.category ?? ""} />
+                </Field>
+                <Field label="Default owner">
+                  <Input name="defaultOwner" defaultValue={task.defaultOwner ?? ""} />
+                </Field>
+                <Field label="Recurrence">
+                  <Select name="recurrenceType" defaultValue={task.recurrenceType}>
+                    <option value="MONTHLY">Monthly</option>
+                    <option value="QUARTERLY">Quarterly</option>
+                    <option value="YEARLY">Yearly</option>
+                    <option value="ONE_TIME">One-Time</option>
+                  </Select>
+                </Field>
+                <Field label="Priority">
+                  <Select name="defaultPriority" defaultValue={task.defaultPriority}>
+                    <option value="LOW">Low</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="HIGH">High</option>
+                    <option value="CRITICAL">Critical</option>
+                  </Select>
+                </Field>
+                <Field label="Due rule">
+                  <Select name="dueDateRuleType" defaultValue={task.dueDateRuleType}>
+                    <option value="NONE">None</option>
+                    <option value="DAY_OF_MONTH">Day of month</option>
+                    <option value="BUSINESS_DAY_OFFSET_FROM_PERIOD_END">Business day offset from period end</option>
+                    <option value="FIXED_CALENDAR_DATE">Fixed calendar date</option>
+                    <option value="OFFSET_FROM_PERIOD_START">Offset from period start</option>
+                  </Select>
+                </Field>
+                <Field label="Day of month">
+                  <Input name="dueDayOfMonth" type="number" defaultValue={task.dueDayOfMonth ?? ""} />
+                </Field>
+                <Field label="Business day offset">
+                  <Input name="businessDayOffset" type="number" defaultValue={task.businessDayOffset ?? ""} />
+                </Field>
+                <Field label="Fixed month">
+                  <Input name="fixedMonth" type="number" defaultValue={task.fixedMonth ?? ""} />
+                </Field>
+                <Field label="Fixed day">
+                  <Input name="fixedDay" type="number" defaultValue={task.fixedDay ?? ""} />
+                </Field>
+                <Field label="Offset from period start">
+                  <Input name="offsetFromPeriodStart" type="number" defaultValue={task.offsetFromPeriodStart ?? ""} />
+                </Field>
+                <Field label="Depends on">
+                  <Select name="dependencyTemplateTaskId" defaultValue={task.dependencyTemplateTaskId ?? ""}>
+                    <option value="">No dependency</option>
+                    {template.tasks
+                      .filter((candidate) => candidate.id !== task.id)
+                      .map((candidate) => (
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.title}
+                        </option>
+                      ))}
+                  </Select>
+                </Field>
+                <Field label="Sort order">
+                  <Input name="sortOrder" type="number" defaultValue={task.sortOrder} />
+                </Field>
+                <Field label="Carryforward behavior">
+                  <Select name="carryforwardBehavior" defaultValue={task.carryforwardBehavior}>
+                    <option value="NONE">None</option>
+                    <option value="SURFACE_IF_INCOMPLETE">Surface if incomplete</option>
+                    <option value="ALWAYS_CREATE">Always create</option>
+                    <option value="COPY_NOTES">Copy notes when carried forward</option>
+                  </Select>
+                </Field>
+                <div className="md:col-span-2">
+                  <Field label="Description">
+                    <TextArea name="description" defaultValue={task.description ?? ""} />
+                  </Field>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" name="evidenceRequired" defaultChecked={task.evidenceRequired} />
+                  Evidence required
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" name="reviewerRequired" defaultChecked={task.reviewerRequired} />
+                  Reviewer signoff required
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
+                  <input type="checkbox" name="copyNotesForward" defaultChecked={task.copyNotesForward} />
+                  Copy notes to carryforward tasks
+                </label>
+                <div className="md:col-span-2">
+                  <Button type="submit">Save Task Changes</Button>
+                </div>
+              </form>
+            </div>
+          ))}
         </div>
       </Panel>
     </div>

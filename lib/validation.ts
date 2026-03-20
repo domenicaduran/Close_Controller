@@ -44,12 +44,12 @@ export const templateTaskSchema = z.object({
 });
 
 export const periodGenerationSchema = z.object({
-  clientId: z.string().min(1),
-  templateId: z.string().min(1),
-  label: z.string().min(1),
-  periodKey: z.string().min(1),
-  periodStart: z.string().min(1),
-  periodEnd: z.string().min(1),
+  clientId: z.string().min(1, "Choose a client."),
+  templateId: z.string().optional(),
+  label: z.string().min(1, "Period label is required."),
+  periodKey: z.string().min(1, "Period key is required."),
+  periodStart: z.string().min(1, "Period start date is required."),
+  periodEnd: z.string().min(1, "Period end date is required."),
 });
 
 export const rollforwardSchema = z.object({

@@ -78,7 +78,7 @@ export default async function TasksPage({
   searchParams: Promise<SearchParams>;
 }) {
   const params = await searchParams;
-  const selectedView = params.view === "flat" ? "flat" : "status";
+  const selectedView = params.view === "status" ? "status" : "flat";
   const showNewTaskForm = params.new === "1";
   const activeSavedView = SAVED_VIEWS.some((view) => view.key === params.saved) ? params.saved : undefined;
 
@@ -184,23 +184,13 @@ export default async function TasksPage({
                 periodId: params.periodId,
                 new: "1",
               })}`}
-              className="rounded-xl border border-[#2563EB] bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-[#1D4ED8] hover:bg-[#1D4ED8]"
+              className="rounded-xl border border-[#2563EB] bg-[#2563EB] px-3.5 py-2 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-[#1D4ED8] hover:bg-[#1D4ED8]"
             >
               New Task
             </Link>
             <Link
-              href={`/tasks?${buildQueryString({ ...params, view: "status", new: undefined })}`}
-              className={`rounded-xl border px-4 py-2.5 text-sm font-semibold shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition ${
-                selectedView === "status"
-                  ? "border-[#2563EB] bg-[#2563EB] text-white"
-                  : "border-[#E5E7EB] bg-white text-[#1F2937] hover:bg-[#F9FAFB]"
-              }`}
-            >
-              By Status
-            </Link>
-            <Link
               href={`/tasks?${buildQueryString({ ...params, view: "flat", new: undefined })}`}
-              className={`rounded-xl border px-4 py-2.5 text-sm font-semibold shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition ${
+              className={`rounded-xl border px-3.5 py-2 text-sm font-semibold shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition ${
                 selectedView === "flat"
                   ? "border-[#2563EB] bg-[#2563EB] text-white"
                   : "border-[#E5E7EB] bg-white text-[#1F2937] hover:bg-[#F9FAFB]"
@@ -208,11 +198,21 @@ export default async function TasksPage({
             >
               Flat List
             </Link>
+            <Link
+              href={`/tasks?${buildQueryString({ ...params, view: "status", new: undefined })}`}
+              className={`rounded-xl border px-3.5 py-2 text-sm font-semibold shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition ${
+                selectedView === "status"
+                  ? "border-[#2563EB] bg-[#2563EB] text-white"
+                  : "border-[#E5E7EB] bg-white text-[#1F2937] hover:bg-[#F9FAFB]"
+              }`}
+            >
+              By Status
+            </Link>
           </div>
         }
       />
 
-      <Panel title="Focus Views" subtitle="Jump straight into the most common controller work queues.">
+      <Panel title="Focus Views" subtitle="Jump straight into the most common controller work queues." className="p-4">
         <div className="flex flex-wrap gap-2">
           {SAVED_VIEWS.map((view) => (
             <Link
@@ -225,7 +225,7 @@ export default async function TasksPage({
                 sourceType: params.sourceType,
                 priority: params.priority,
               })}`}
-              className={`rounded-xl border px-4 py-2.5 text-sm font-semibold shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition ${
+              className={`rounded-xl border px-3.5 py-2 text-sm font-semibold shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition ${
                 activeSavedView === view.key
                   ? "border-[#2563EB] bg-[#EFF6FF] text-[#2563EB]"
                   : "border-[#E5E7EB] bg-white text-[#1F2937] hover:bg-[#F9FAFB]"
@@ -236,15 +236,15 @@ export default async function TasksPage({
           ))}
           <Link
             href={`/tasks?${buildQueryString({ view: selectedView })}`}
-            className="rounded-xl border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-[#F9FAFB]"
+            className="rounded-xl border border-[#E5E7EB] bg-white px-3.5 py-2 text-sm font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-[#F9FAFB]"
           >
             Clear Focus
           </Link>
         </div>
       </Panel>
 
-      <Panel title="Filters" subtitle="Refine the task board by owner, client, timing, source, and priority.">
-        <form method="get" className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <Panel title="Filters" subtitle="Refine the task board by owner, client, timing, source, and priority." className="p-4">
+        <form method="get" className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           <input type="hidden" name="view" value={selectedView} />
           <Field label="Due window">
             <Select name="due" defaultValue={params.due ?? ""}>
@@ -372,11 +372,11 @@ export default async function TasksPage({
         </Panel>
       ) : null}
 
-      <section className="grid gap-4 xl:grid-cols-5">
+      <section className="grid gap-3 xl:grid-cols-5">
         {STATUS_SECTIONS.map((section) => (
           <div
             key={section.key}
-            className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]"
+            className="rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(16,24,40,0.04)]"
           >
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-[#1F2937]">{section.label}</p>
@@ -384,13 +384,13 @@ export default async function TasksPage({
                 {counts.get(section.key) ?? 0}
               </span>
             </div>
-            <p className="mt-2 text-sm leading-6 text-[#6B7280]">{section.description}</p>
+            <p className="mt-1 text-xs leading-5 text-[#6B7280]">{section.description}</p>
           </div>
         ))}
       </section>
 
       {selectedView === "flat" ? (
-        <Panel title="All Tasks" subtitle={`${filteredTasks.length} task${filteredTasks.length === 1 ? "" : "s"} in the current result set.`}>
+        <Panel title="All Tasks" subtitle={`${filteredTasks.length} task${filteredTasks.length === 1 ? "" : "s"} in the current result set.`} className="p-4">
           <TaskTable tasks={filteredTasks} formId="bulk-flat" showClient />
         </Panel>
       ) : (
@@ -404,17 +404,18 @@ export default async function TasksPage({
                 key={section.key}
                 title={section.label}
                 subtitle={`${section.description} ${sectionTasks.length} task${sectionTasks.length === 1 ? "" : "s"} in this section.`}
+                className="p-4"
               >
                 {sectionTasks.length === 0 ? (
                   <p className="text-sm text-[#6B7280]">No tasks in {section.label.toLowerCase()} right now.</p>
                 ) : (
-                  <div className="space-y-5">
+                  <div className="space-y-4">
                     {groups.map((group) => (
-                      <div key={group.clientId} className="space-y-3">
-                        <div className="flex items-center justify-between gap-3">
+                      <div key={group.clientId} className="space-y-2">
+                        <div className="flex items-center justify-between gap-3 border-b border-[#E5E7EB] pb-2">
                           <div>
-                            <p className="text-base font-semibold text-[#1F2937]">{group.clientName}</p>
-                            <p className="text-sm text-[#6B7280]">
+                            <p className="text-sm font-semibold text-[#1F2937]">{group.clientName}</p>
+                            <p className="text-xs text-[#6B7280]">
                               {group.tasks.length} task{group.tasks.length === 1 ? "" : "s"}
                             </p>
                           </div>
@@ -426,11 +427,11 @@ export default async function TasksPage({
                                 periodId: group.tasks[0]?.periodInstance.id,
                                 new: "1",
                               })}`}
-                              className="text-sm font-semibold text-[#2563EB]"
+                              className="text-xs font-semibold text-[#2563EB]"
                             >
                               New Task for Client
                             </Link>
-                            <Link href={`/clients/${group.clientId}`} className="text-sm font-semibold text-[#2563EB]">
+                            <Link href={`/clients/${group.clientId}`} className="text-xs font-semibold text-[#2563EB]">
                               Open Client
                             </Link>
                           </div>
@@ -460,7 +461,7 @@ function TaskTable({
 }) {
   return (
     <div className="space-y-4">
-      <form id={formId} action={bulkUpdateTasksAction} className="grid gap-3 rounded-2xl border border-[#E5E7EB] bg-[#F9FAFB] p-4 md:grid-cols-[1.2fr_1fr_1fr_auto]">
+      <form id={formId} action={bulkUpdateTasksAction} className="grid gap-3 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-3 md:grid-cols-[1.2fr_1fr_1fr_auto]">
         <Field label="Bulk assignee">
           <Input name="assignee" placeholder="Reassign selected tasks" />
         </Field>
@@ -478,30 +479,30 @@ function TaskTable({
           <Input name="dueDate" type="date" />
         </Field>
         <div className="flex items-end">
-          <Button type="submit">Apply to Selected</Button>
+          <Button type="submit" className="px-3 py-2">Apply to Selected</Button>
         </div>
       </form>
 
-      <div className="overflow-hidden rounded-2xl border border-[#E5E7EB]">
-        <table className="min-w-full text-left text-sm">
+      <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">
+        <table className="min-w-full text-left text-[13px]">
           <thead className="sticky top-0 bg-[#F9FAFB] text-[#6B7280]">
             <tr>
-              <th className="w-14 px-4 py-3 font-medium">Select</th>
-              <th className="w-14 px-4 py-3 font-medium">Done</th>
-              <th className="px-4 py-3 font-medium">Task</th>
-              {showClient ? <th className="px-4 py-3 font-medium">Client</th> : null}
-              <th className="px-4 py-3 font-medium">Period</th>
-              <th className="px-4 py-3 font-medium">Assignee</th>
-              <th className="px-4 py-3 font-medium">Due</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Source</th>
-              <th className="px-4 py-3 font-medium text-right">Delete</th>
+              <th className="w-12 px-3 py-2.5 font-medium">Select</th>
+              <th className="w-12 px-3 py-2.5 font-medium">Done</th>
+              <th className="px-3 py-2.5 font-medium">Task</th>
+              {showClient ? <th className="px-3 py-2.5 font-medium">Client</th> : null}
+              <th className="px-3 py-2.5 font-medium">Period</th>
+              <th className="px-3 py-2.5 font-medium">Assignee</th>
+              <th className="px-3 py-2.5 font-medium">Due</th>
+              <th className="px-3 py-2.5 font-medium">Status</th>
+              <th className="px-3 py-2.5 font-medium">Source</th>
+              <th className="px-3 py-2.5 font-medium text-right">Delete</th>
             </tr>
           </thead>
           <tbody>
             {tasks.map((task) => (
               <tr key={task.id} className="border-t border-[#E5E7EB] align-top text-[#374151]">
-                <td className="px-4 py-3">
+                <td className="px-3 py-2.5">
                   <input
                     form={formId}
                     type="checkbox"
@@ -510,7 +511,7 @@ function TaskTable({
                     className="h-4 w-4 rounded border-[#D1D5DB] text-[#2563EB] focus:ring-[#2563EB]"
                   />
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-3 py-2.5">
                   {task.status === TaskStatus.COMPLETE ? (
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669]">
                       <CheckCircle2 className="h-4 w-4" />
@@ -531,38 +532,38 @@ function TaskTable({
                     </form>
                   )}
                 </td>
-                <td className="px-4 py-3">
-                  <div className="min-w-56">
+                <td className="px-3 py-2.5">
+                  <div className="min-w-52 max-w-[22rem]">
                     <Link href={`/tasks/${task.id}`} className="font-semibold text-[#1F2937]">
                       {task.title}
                     </Link>
-                    <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
+                    <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
                       {task.category || "General"} | {task.priority}
                     </p>
                     {task.description ? (
-                      <p className="mt-2 text-sm leading-6 text-[#6B7280]">{task.description}</p>
+                      <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-[#6B7280]">{task.description}</p>
                     ) : null}
                     {task.blockedReason ? (
-                      <p className="mt-2 text-sm text-[#D97706]">{task.blockedReason}</p>
+                      <p className="mt-1.5 text-xs text-[#D97706]">{task.blockedReason}</p>
                     ) : null}
                   </div>
                 </td>
-                {showClient ? <td className="px-4 py-3">{task.periodInstance.client.name}</td> : null}
-                <td className="px-4 py-3">
+                {showClient ? <td className="px-3 py-2.5">{task.periodInstance.client.name}</td> : null}
+                <td className="px-3 py-2.5">
                   <div>
                     <p className="font-medium text-[#1F2937]">{task.periodInstance.label}</p>
-                    <p className="text-xs uppercase tracking-[0.18em] text-[#9CA3AF]">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-[#9CA3AF]">
                       {task.periodInstance.template.name}
                     </p>
-                    <Link href={`/periods/${task.periodInstance.id}`} className="mt-2 inline-block text-xs font-semibold text-[#2563EB]">
+                    <Link href={`/periods/${task.periodInstance.id}`} className="mt-1.5 inline-block text-[11px] font-semibold text-[#2563EB]">
                       Open Period Settings
                     </Link>
                   </div>
                 </td>
-                <td className="px-4 py-3">{task.assignee || "Unassigned"}</td>
-                <td className="px-4 py-3">{formatDate(task.dueDate)}</td>
-                <td className="px-4 py-3">
-                  <form action={updateTaskStatusAction} className="flex min-w-48 items-center gap-2">
+                <td className="px-3 py-2.5">{task.assignee || "Unassigned"}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap">{formatDate(task.dueDate)}</td>
+                <td className="px-3 py-2.5">
+                  <form action={updateTaskStatusAction} className="flex min-w-44 items-center gap-2">
                     <input type="hidden" name="id" value={task.id} />
                     <input type="hidden" name="periodId" value={task.periodInstance.id} />
                     <Select name="status" defaultValue={task.status}>
@@ -572,20 +573,20 @@ function TaskTable({
                       <option value="BLOCKED">Blocked</option>
                       <option value="COMPLETE">Complete</option>
                     </Select>
-                    <Button type="submit" variant="secondary" className="px-3 py-2">
+                    <Button type="submit" variant="secondary" className="px-2.5 py-2 text-xs">
                       Save
                     </Button>
                   </form>
-                  <div className="mt-2">
+                  <div className="mt-1.5">
                     <StatusBadge status={task.status} />
                   </div>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-3 py-2.5">
                   <span className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1 text-[11px] font-semibold text-[#6B7280]">
                     {task.sourceType.replaceAll("_", " ")}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-3 py-2.5 text-right">
                   <form action={deleteTaskAction} className="inline-flex">
                     <input type="hidden" name="id" value={task.id} />
                     <input type="hidden" name="periodId" value={task.periodInstance.id} />

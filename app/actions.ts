@@ -35,6 +35,7 @@ import { prisma } from "@/lib/prisma";
 import {
   buildPeriodKey,
   buildPeriodLabel,
+  createManualPeriodInstance,
   generatePeriodInstance,
 } from "@/lib/workflow";
 import {
@@ -287,6 +288,23 @@ export async function updateTemplateAction(formData: FormData) {
   revalidatePath("/");
 }
 
+export async function deleteTemplateAction(formData: FormData) {
+  const id = stringValue(formData, "id");
+
+  try {
+    await prisma.workflowTemplate.delete({
+      where: { id },
+    });
+  } catch {
+    throw new Error("This template cannot be deleted because it is already tied to generated periods.");
+  }
+
+  revalidatePath("/templates");
+  revalidatePath("/clients");
+  revalidatePath("/");
+  redirect("/templates");
+}
+
 export async function assignTemplateToClientAction(formData: FormData) {
   const clientId = stringValue(formData, "clientId");
   const templateId = stringValue(formData, "templateId");
@@ -363,10 +381,72 @@ export async function createTemplateTaskAction(formData: FormData) {
   revalidatePath("/templates");
 }
 
+export async function updateTemplateTaskAction(formData: FormData) {
+  const id = stringValue(formData, "id");
+  const templateId = stringValue(formData, "templateId");
+
+  const parsed = templateTaskSchema.safeParse({
+    title: stringValue(formData, "title"),
+    description: optionalString(formData, "description"),
+    category: optionalString(formData, "category"),
+    defaultOwner: optionalString(formData, "defaultOwner"),
+    recurrenceType: stringValue(formData, "recurrenceType") as RecurrenceType,
+    dueDateRuleType: stringValue(formData, "dueDateRuleType"),
+    dueDayOfMonth: numberOrUndefined(optionalString(formData, "dueDayOfMonth")),
+    businessDayOffset: numberOrUndefined(optionalString(formData, "businessDayOffset")),
+    fixedMonth: numberOrUndefined(optionalString(formData, "fixedMonth")),
+    fixedDay: numberOrUndefined(optionalString(formData, "fixedDay")),
+    offsetFromPeriodStart: numberOrUndefined(optionalString(formData, "offsetFromPeriodStart")),
+    dependencyTemplateTaskId: optionalString(formData, "dependencyTemplateTaskId"),
+    sortOrder: numberOrUndefined(optionalString(formData, "sortOrder")) ?? 0,
+    carryforwardBehavior: stringValue(formData, "carryforwardBehavior"),
+    evidenceRequired: boolValue(formData, "evidenceRequired"),
+    reviewerRequired: boolValue(formData, "reviewerRequired"),
+    copyNotesForward: boolValue(formData, "copyNotesForward"),
+    defaultPriority: stringValue(formData, "defaultPriority"),
+  });
+
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Could not update template task.");
+  }
+
+  await prisma.templateTask.update({
+    where: { id },
+    data: {
+      ...parsed.data,
+      dependencyTemplateTaskId:
+        parsed.data.dependencyTemplateTaskId && parsed.data.dependencyTemplateTaskId !== id
+          ? parsed.data.dependencyTemplateTaskId
+          : null,
+    },
+  });
+
+  revalidatePath(`/templates/${templateId}`);
+  revalidatePath("/templates");
+}
+
+export async function deleteTemplateTaskAction(formData: FormData) {
+  const id = stringValue(formData, "id");
+  const templateId = stringValue(formData, "templateId");
+
+  await prisma.$transaction([
+    prisma.templateTask.updateMany({
+      where: { dependencyTemplateTaskId: id },
+      data: { dependencyTemplateTaskId: null },
+    }),
+    prisma.templateTask.delete({
+      where: { id },
+    }),
+  ]);
+
+  revalidatePath(`/templates/${templateId}`);
+  revalidatePath("/templates");
+}
+
 export async function createPeriodAction(formData: FormData) {
   const parsed = periodGenerationSchema.safeParse({
     clientId: stringValue(formData, "clientId"),
-    templateId: stringValue(formData, "templateId"),
+    templateId: optionalString(formData, "templateId"),
     label: stringValue(formData, "label"),
     periodKey: stringValue(formData, "periodKey"),
     periodStart: stringValue(formData, "periodStart"),
@@ -377,14 +457,22 @@ export async function createPeriodAction(formData: FormData) {
     throw new Error(parsed.error.issues[0]?.message ?? "Could not create period.");
   }
 
-  const period = await generatePeriodInstance({
-    clientId: parsed.data.clientId,
-    templateId: parsed.data.templateId,
-    label: parsed.data.label,
-    periodKey: parsed.data.periodKey,
-    periodStart: parseISO(parsed.data.periodStart),
-    periodEnd: parseISO(parsed.data.periodEnd),
-  });
+  const period = parsed.data.templateId
+    ? await generatePeriodInstance({
+        clientId: parsed.data.clientId,
+        templateId: parsed.data.templateId,
+        label: parsed.data.label,
+        periodKey: parsed.data.periodKey,
+        periodStart: parseISO(parsed.data.periodStart),
+        periodEnd: parseISO(parsed.data.periodEnd),
+      })
+    : await createManualPeriodInstance({
+        clientId: parsed.data.clientId,
+        label: parsed.data.label,
+        periodKey: parsed.data.periodKey,
+        periodStart: parseISO(parsed.data.periodStart),
+        periodEnd: parseISO(parsed.data.periodEnd),
+      });
 
   revalidatePath("/periods");
   revalidatePath("/");
@@ -394,7 +482,21 @@ export async function createPeriodAction(formData: FormData) {
 export async function createSuggestedPeriodAction(formData: FormData) {
   const clientId = stringValue(formData, "clientId");
   const templateId = stringValue(formData, "templateId");
-  const basisDate = parseISO(stringValue(formData, "basisDate"));
+  const basisDateRaw = stringValue(formData, "basisDate");
+
+  if (!clientId) {
+    throw new Error("Choose a client.");
+  }
+
+  if (!templateId) {
+    throw new Error("Choose a template.");
+  }
+
+  if (!basisDateRaw) {
+    throw new Error("Basis date is required.");
+  }
+
+  const basisDate = parseISO(basisDateRaw);
 
   const template = await prisma.workflowTemplate.findUniqueOrThrow({
     where: { id: templateId },

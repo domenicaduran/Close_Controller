@@ -38,7 +38,7 @@ export default async function PeriodsPage() {
         <Panel title="Generate Period" subtitle="Use explicit period labels and dates when you need precise control.">
           <form action={createPeriodAction} className="grid gap-4 md:grid-cols-2">
             <Field label="Client">
-              <Select name="clientId">
+              <Select name="clientId" required>
                 <option value="">Select client</option>
                 {clients.map((client) => (
                   <option key={client.id} value={client.id}>
@@ -47,9 +47,9 @@ export default async function PeriodsPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="Template">
-              <Select name="templateId">
-                <option value="">Select template</option>
+            <Field label="Template Optional">
+              <Select name="templateId" defaultValue="">
+                <option value="">No template / manual period</option>
                 {templates.map((template) => (
                   <option key={template.id} value={template.id}>
                     {template.name}
@@ -78,7 +78,7 @@ export default async function PeriodsPage() {
         <Panel title="Quick Generate" subtitle="Create the next standard period from a basis date and template recurrence.">
           <form action={createSuggestedPeriodAction} className="grid gap-4">
             <Field label="Client">
-              <Select name="clientId">
+              <Select name="clientId" required>
                 <option value="">Select client</option>
                 {clients.map((client) => (
                   <option key={client.id} value={client.id}>
@@ -88,7 +88,7 @@ export default async function PeriodsPage() {
               </Select>
             </Field>
             <Field label="Template">
-              <Select name="templateId">
+              <Select name="templateId" required>
                 <option value="">Select template</option>
                 {templates.map((template) => (
                   <option key={template.id} value={template.id}>
@@ -128,7 +128,7 @@ export default async function PeriodsPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-3">{period.client.name}</td>
-                    <td className="px-4 py-3">{period.template.name}</td>
+                    <td className="px-4 py-3">{period.template.name === "Manual Period" ? "Manual / No Template" : period.template.name}</td>
                     <td className="px-4 py-3">
                       {formatDate(period.periodStart)} - {formatDate(period.periodEnd)}
                     </td>

@@ -45,6 +45,8 @@ export type GeneratePeriodInput = {
   rollforwardOptions?: RollforwardOptions;
 };
 
+const MANUAL_PERIOD_TEMPLATE_NAME = "Manual Period";
+
 function toBusinessDay(date: Date) {
   const day = getDay(date);
   if (day === 6) return addDays(date, -1);
@@ -139,6 +141,75 @@ export function inferNextPeriod(recurrenceType: RecurrenceType, periodStart: Dat
         periodEnd: addMonths(periodStart, 1),
       };
   }
+}
+
+export async function ensureManualPeriodTemplate() {
+  const existing = await prisma.workflowTemplate.findFirst({
+    where: {
+      name: MANUAL_PERIOD_TEMPLATE_NAME,
+      workflowType: "ONE_OFF",
+      recurrenceType: "ONE_TIME",
+    },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  return prisma.workflowTemplate.create({
+    data: {
+      name: MANUAL_PERIOD_TEMPLATE_NAME,
+      workflowType: "ONE_OFF",
+      recurrenceType: "ONE_TIME",
+      description: "System template used when a period is created without a reusable workflow template.",
+      isActive: false,
+    },
+  });
+}
+
+export async function createManualPeriodInstance(input: {
+  clientId: string;
+  label: string;
+  periodKey: string;
+  periodStart: Date;
+  periodEnd: Date;
+}) {
+  const template = await ensureManualPeriodTemplate();
+
+  const existingPeriod = await prisma.periodInstance.findFirst({
+    where: {
+      clientId: input.clientId,
+      templateId: template.id,
+      periodKey: input.periodKey,
+    },
+  });
+
+  if (existingPeriod) {
+    throw new Error("A manual period already exists for this client and target period key.");
+  }
+
+  return prisma.periodInstance.create({
+    data: {
+      clientId: input.clientId,
+      templateId: template.id,
+      label: input.label,
+      periodKey: input.periodKey,
+      workflowType: template.workflowType,
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      templateSnapshot: JSON.stringify({
+        template: {
+          id: template.id,
+          name: template.name,
+          workflowType: template.workflowType,
+          recurrenceType: template.recurrenceType,
+          description: template.description,
+        },
+        tasks: [],
+        manualPeriod: true,
+      }),
+    },
+  });
 }
 
 export async function generatePeriodInstance(input: GeneratePeriodInput) {
