@@ -2,12 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
-  addEvidenceLinkAction,
-  addTaskCommentAction,
   deleteTaskAction,
   rollforwardPeriodAction,
   setPeriodStatusAction,
-  updateTaskDetailsAction,
   updateTaskStatusAction,
 } from "@/app/actions";
 import { ClientActionButton } from "@/components/client-action-button";
@@ -19,7 +16,6 @@ import {
   Panel,
   Select,
   StatusBadge,
-  TextArea,
 } from "@/components/ui";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { buildPeriodLabel, inferNextPeriod } from "@/lib/workflow";
@@ -64,6 +60,9 @@ export default async function PeriodDetailPage({
 
   const suggestedNextPeriod = inferNextPeriod(period.template.recurrenceType, period.periodStart);
   const suggestedLabel = buildPeriodLabel(period.template, suggestedNextPeriod.periodStart);
+  const blockedCount = period.taskInstances.filter((task) => task.status === "BLOCKED").length;
+  const waitingCount = period.taskInstances.filter((task) => task.status === "WAITING_ON_CLIENT").length;
+  const openCount = period.taskInstances.filter((task) => task.status !== "COMPLETE").length;
 
   return (
     <div className="space-y-6 py-2">
@@ -71,6 +70,25 @@ export default async function PeriodDetailPage({
         title={period.label}
         description={`${period.client.name} - ${period.template.name} - Snapshot preserved at generation time.`}
       />
+
+      <section className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-[#6B7280]">Total Tasks</p>
+          <p className="mt-2 text-3xl font-semibold text-[#1F2937]">{period.taskInstances.length}</p>
+        </div>
+        <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-[#6B7280]">Open</p>
+          <p className="mt-2 text-3xl font-semibold text-[#1F2937]">{openCount}</p>
+        </div>
+        <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-[#6B7280]">Blocked</p>
+          <p className="mt-2 text-3xl font-semibold text-[#D97706]">{blockedCount}</p>
+        </div>
+        <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-[#6B7280]">Waiting on Client</p>
+          <p className="mt-2 text-3xl font-semibold text-[#7C3AED]">{waitingCount}</p>
+        </div>
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
         <Panel title="Period Controls" subtitle="Create the next period with explicit dates and carryforward rules.">
@@ -147,13 +165,20 @@ export default async function PeriodDetailPage({
               <p className="mt-1">Generated: {formatDateTime(period.generatedAt)}</p>
               {period.sourcePeriod ? <p className="mt-1">Rolled from: {period.sourcePeriod.label}</p> : null}
             </div>
+
+            <Link
+              href={`/tasks?new=1&clientId=${period.clientId}&periodId=${period.id}`}
+              className="inline-flex items-center justify-center rounded-xl border border-[#2563EB] bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-[#1D4ED8] hover:bg-[#1D4ED8]"
+            >
+              New Manual Task for This Period
+            </Link>
           </div>
         </Panel>
 
-        <Panel title="Task Board" subtitle="This period controls the generated task set. Open any task to manage its details in a dedicated task workspace.">
-          <div className="space-y-4">
+        <Panel title="Period Task Summary" subtitle="Use periods for cycle oversight and generation. Open individual tasks to do the work in a dedicated workspace.">
+          <div className="space-y-3">
             {period.taskInstances.map((task) => (
-              <div key={task.id} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
+              <div key={task.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="flex flex-wrap items-center gap-3">
@@ -181,6 +206,13 @@ export default async function PeriodDetailPage({
                         Normal generated task from active template
                       </p>
                     ) : null}
+                    <p className="mt-2 text-sm text-slate-600">
+                      Assignee: {task.assignee || "Unassigned"}
+                      {" · "}
+                      Notes: {task.comments.length}
+                      {" · "}
+                      Evidence: {task.evidenceLinks.length}
+                    </p>
                     <Link href={`/tasks/${task.id}`} className="mt-3 inline-block text-sm font-semibold text-[#2563EB]">
                       Open Task Workspace
                     </Link>
@@ -209,108 +241,6 @@ export default async function PeriodDetailPage({
                     </form>
                   </div>
                 </div>
-
-                <form action={updateTaskDetailsAction} className="mt-4 grid gap-4 md:grid-cols-2">
-                  <input type="hidden" name="id" value={task.id} />
-                  <input type="hidden" name="periodId" value={period.id} />
-                  <Field label="Assignee">
-                    <Input name="assignee" defaultValue={task.assignee ?? ""} />
-                  </Field>
-                  <Field label="Priority">
-                    <Select name="priority" defaultValue={task.priority}>
-                      <option value="LOW">Low</option>
-                      <option value="MEDIUM">Medium</option>
-                      <option value="HIGH">High</option>
-                      <option value="CRITICAL">Critical</option>
-                    </Select>
-                  </Field>
-                  <Field label="Due date">
-                    <Input
-                      name="dueDate"
-                      type="date"
-                      defaultValue={task.dueDate ? task.dueDate.toISOString().slice(0, 10) : ""}
-                    />
-                  </Field>
-                  <Field label="Reviewer signoff">
-                    <Input name="reviewerSignoff" defaultValue={task.reviewerSignoff ?? ""} />
-                  </Field>
-                  <div className="md:col-span-2">
-                    <Field label="Blocked reason">
-                      <Input name="blockedReason" defaultValue={task.blockedReason ?? ""} />
-                    </Field>
-                  </div>
-                  <div className="md:col-span-2">
-                    <Field label="Notes">
-                      <TextArea name="notes" defaultValue={task.notes ?? ""} />
-                    </Field>
-                  </div>
-                  <div className="md:col-span-2">
-                    <Button type="submit">Save Task Details</Button>
-                  </div>
-                </form>
-
-                <div className="mt-5 grid gap-4 xl:grid-cols-2">
-                  <form action={addTaskCommentAction} className="grid gap-3 rounded-2xl bg-white p-4">
-                    <input type="hidden" name="taskInstanceId" value={task.id} />
-                    <input type="hidden" name="periodId" value={period.id} />
-                    <Field label="Add note">
-                      <TextArea name="body" placeholder="Document review notes, blockers, or follow-up." />
-                    </Field>
-                    <Button type="submit" variant="secondary">
-                      Add Note
-                    </Button>
-                  </form>
-
-                  <form action={addEvidenceLinkAction} className="grid gap-3 rounded-2xl bg-white p-4">
-                    <input type="hidden" name="taskInstanceId" value={task.id} />
-                    <input type="hidden" name="periodId" value={period.id} />
-                    <Field label="Evidence label">
-                      <Input name="label" placeholder="Cash rec workbook" />
-                    </Field>
-                    <Field label="Evidence URL">
-                      <Input name="url" placeholder="https://sharepoint/..." />
-                    </Field>
-                    <Button type="submit" variant="secondary">
-                      Add Evidence Link
-                    </Button>
-                  </form>
-                </div>
-
-                {task.comments.length > 0 ? (
-                  <div className="mt-4 rounded-2xl bg-white p-4">
-                    <p className="text-sm font-semibold text-slate-900">Notes</p>
-                    <div className="mt-3 space-y-3 text-sm text-slate-600">
-                      {task.comments.map((comment) => (
-                        <div key={comment.id} className="rounded-xl border border-slate-200 px-3 py-3">
-                          <p>{comment.body}</p>
-                          <p className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-400">
-                            {formatDateTime(comment.createdAt)}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {task.evidenceLinks.length > 0 ? (
-                  <div className="mt-4 rounded-2xl bg-white p-4">
-                    <p className="text-sm font-semibold text-slate-900">Evidence Links</p>
-                    <div className="mt-3 space-y-2 text-sm">
-                      {task.evidenceLinks.map((link) => (
-                        <a
-                          key={link.id}
-                          href={link.url}
-                          className="block rounded-xl border border-slate-200 px-3 py-3 text-slate-700"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <span className="font-semibold text-slate-950">{link.label}</span>
-                          <span className="mt-1 block text-xs text-slate-500">{link.url}</span>
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
               </div>
             ))}
           </div>

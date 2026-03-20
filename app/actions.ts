@@ -191,6 +191,59 @@ export async function createManualTaskAction(formData: FormData) {
   redirect(`/tasks/${task.id}`);
 }
 
+export async function bulkUpdateTasksAction(formData: FormData) {
+  const taskIds = formData
+    .getAll("taskIds")
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+
+  if (taskIds.length === 0) return;
+
+  const assignee = optionalString(formData, "assignee");
+  const statusValue = optionalString(formData, "status") as TaskStatus | undefined;
+  const dueDateValue = optionalString(formData, "dueDate");
+
+  const updates: {
+    assignee?: string | null;
+    status?: TaskStatus;
+    completedAt?: Date | null;
+    dueDate?: Date | null;
+  } = {};
+
+  if (assignee) {
+    updates.assignee = assignee;
+  }
+
+  if (statusValue) {
+    updates.status = statusValue;
+    updates.completedAt = statusValue === TaskStatus.COMPLETE ? new Date() : null;
+  }
+
+  if (dueDateValue) {
+    updates.dueDate = parseISO(dueDateValue);
+  }
+
+  if (Object.keys(updates).length === 0) return;
+
+  const selectedTasks = await prisma.taskInstance.findMany({
+    where: { id: { in: taskIds } },
+    select: { id: true, periodInstanceId: true },
+  });
+
+  await prisma.taskInstance.updateMany({
+    where: { id: { in: taskIds } },
+    data: updates,
+  });
+
+  revalidatePath("/tasks");
+  revalidatePath("/periods");
+  revalidatePath("/");
+
+  for (const periodId of new Set(selectedTasks.map((task) => task.periodInstanceId))) {
+    revalidatePath(`/periods/${periodId}`);
+  }
+}
+
 export async function createTemplateAction(formData: FormData) {
   const parsed = templateSchema.safeParse({
     name: stringValue(formData, "name"),
