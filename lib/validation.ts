@@ -9,6 +9,18 @@ export const clientSchema = z.object({
   email: z.string().email("Email must be valid.").optional().or(z.literal("")),
 });
 
+export const userSchema = z.object({
+  name: z.string().min(1, "Name is required."),
+  email: z.string().email("Email must be valid."),
+  title: z.string().optional(),
+  password: z.string().min(8, "Password must be at least 8 characters."),
+});
+
+export const loginSchema = z.object({
+  email: z.string().email("Email must be valid."),
+  password: z.string().min(1, "Password is required."),
+});
+
 export const templateSchema = z.object({
   name: z.string().min(1, "Template name is required."),
   workflowType: z.nativeEnum(WorkflowType),
@@ -21,6 +33,7 @@ export const templateTaskSchema = z.object({
   description: z.string().optional(),
   category: z.string().optional(),
   defaultOwner: z.string().optional(),
+  defaultOwnerUserId: z.string().optional(),
   recurrenceType: z.nativeEnum(RecurrenceType),
   dueDateRuleType: z.enum([
     "NONE",
@@ -73,6 +86,7 @@ export const manualTaskSchema = z.object({
   description: z.string().optional(),
   category: z.string().optional(),
   assignee: z.string().optional(),
+  assigneeUserId: z.string().optional(),
   dueDate: z.string().optional(),
   notes: z.string().optional(),
   blockedReason: z.string().optional(),

@@ -14,11 +14,13 @@ Close Controller is a local-first web app for recurring accounting operations ac
 ## What is included
 
 - Client management with archive support
+- Internal team accounts with sign-in
+- Client-to-team memberships for collaboration
 - Reusable workflow templates
-- Template task setup with due date rules, dependencies, carryforward behavior, evidence flags, and reviewer flags
+- Template task setup with due date rules, dependencies, carryforward behavior, evidence flags, reviewer flags, and default teammates
 - Period generation from templates
 - Rollforward to the next period with optional carryforwards
-- Task management for status, assignee, priority, notes, blockers, reviewer signoff, and evidence links
+- Task management for status, teammate assignment, priority, notes, blockers, reviewer signoff, and evidence links
 - Audit PBC tracking by client and period
 - CSV/XLSX import preview, column mapping, validation, and commit flow
 - Demo seed data
@@ -68,6 +70,12 @@ npm run sample-data
 npm run dev
 ```
 
+9. Sign in with one of the seeded internal users:
+
+- `dedhern@gmail.com` / `CloseController1`
+- `alex@closecontroller.local` / `CloseController1`
+- `jordan@closecontroller.local` / `CloseController1`
+
 8. Production verification:
 
 ```bash
@@ -85,6 +93,7 @@ npm run build
 ## Seeded demo data
 
 - 2 clients
+- 3 internal team users
 - 1 month-end template
 - 1 quarter-end template
 - 1 audit PBC template
@@ -128,6 +137,7 @@ Supported mapping examples include:
 
 - `/` dashboard
 - `/clients` clients and assignments
+- `/team` internal users and collaboration setup
 - `/templates` template library
 - `/periods` period generation and register
 - `/periods/[id]` task detail and rollforward

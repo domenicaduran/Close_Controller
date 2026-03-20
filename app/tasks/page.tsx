@@ -6,6 +6,7 @@ import {
   bulkUpdateTasksAction,
   createManualTaskAction,
   deleteTaskAction,
+  toggleTaskCompletionAction,
   updateTaskStatusAction,
 } from "@/app/actions";
 import { ClientActionButton } from "@/components/client-action-button";
@@ -18,9 +19,11 @@ import {
   Select,
   StatusBadge,
   TextArea,
+  buttonStyles,
 } from "@/components/ui";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +36,7 @@ const STATUS_SECTIONS = [
 ] as const;
 
 const SAVED_VIEWS = [
+  { key: "mine", label: "My Tasks" },
   { key: "today", label: "Today" },
   { key: "overdue", label: "Overdue" },
   { key: "waiting", label: "Waiting on Client" },
@@ -46,6 +50,7 @@ type SearchParams = {
   saved?: string;
   due?: string;
   assignee?: string;
+  assigneeUserId?: string;
   clientId?: string;
   sourceType?: string;
   priority?: string;
@@ -60,6 +65,7 @@ type TaskRow = {
   category: string | null;
   dueDate: Date | null;
   assignee: string | null;
+  assigneeUserId: string | null;
   sourceType: TaskSourceType;
   blockedReason: string | null;
   priority: Priority;
@@ -78,11 +84,13 @@ export default async function TasksPage({
   searchParams: Promise<SearchParams>;
 }) {
   const params = await searchParams;
-  const selectedView = params.view === "status" ? "status" : "flat";
+  const currentUser = await requireUser();
+  const selectedView =
+    params.view === "status" || params.view === "client" ? params.view : "flat";
   const showNewTaskForm = params.new === "1";
   const activeSavedView = SAVED_VIEWS.some((view) => view.key === params.saved) ? params.saved : undefined;
 
-  const [tasks, periods] = await Promise.all([
+  const [tasks, periods, users] = await Promise.all([
     prisma.taskInstance.findMany({
       where: {
         periodInstance: {
@@ -117,15 +125,17 @@ export default async function TasksPage({
       },
       orderBy: [{ client: { name: "asc" } }, { periodStart: "desc" }],
     }),
+    prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   const clients = Array.from(
     new Map(periods.map((period) => [period.client.id, period.client])).values(),
   ).sort((a, b) => a.name.localeCompare(b.name));
 
-  const assignees = Array.from(
-    new Set(tasks.map((task) => task.assignee).filter((value): value is string => Boolean(value))),
-  ).sort((a, b) => a.localeCompare(b));
+  const assignees = users;
 
   const selectedClientId = params.clientId ?? "";
   const defaultPeriodId =
@@ -141,17 +151,11 @@ export default async function TasksPage({
   const filteredTasks = tasks.filter((task) =>
     matchesSavedView(task, activeSavedView) &&
     matchesClient(task, params.clientId) &&
-    matchesAssignee(task, params.assignee) &&
+    matchesAssignee(task, params.assignee, params.assigneeUserId) &&
     matchesSourceType(task, params.sourceType) &&
     matchesPriority(task, params.priority) &&
-    matchesDueFilter(task, params.due, activeSavedView),
-  );
-
-  const counts = new Map<TaskStatus, number>(
-    STATUS_SECTIONS.map((section) => [
-      section.key,
-      filteredTasks.filter((task) => task.status === section.key).length,
-    ]),
+    matchesDueFilter(task, params.due, activeSavedView) &&
+    matchesCurrentUser(task, activeSavedView, currentUser.id),
   );
 
   const currentQuery = buildQueryString({
@@ -159,17 +163,21 @@ export default async function TasksPage({
     saved: activeSavedView,
     due: params.due,
     assignee: params.assignee,
+    assigneeUserId: params.assigneeUserId,
     clientId: params.clientId,
     sourceType: params.sourceType,
     priority: params.priority,
     periodId: params.periodId,
   });
 
+  const openFilteredTasks = filteredTasks.filter((task) => task.status !== TaskStatus.COMPLETE);
+  const completedFilteredTasks = filteredTasks.filter((task) => task.status === TaskStatus.COMPLETE);
+
   return (
     <div className="space-y-6 py-2">
       <PageHeader
         title="Tasks"
-        description="Use Tasks as the daily operating surface: filter, bulk update, focus on saved views, and manage individual tasks in their own workspace."
+        description="Use Tasks as the daily operating surface: filter, bulk update, and manage individual tasks in their own workspace."
         action={
           <div className="flex gap-2">
             <Link
@@ -178,131 +186,50 @@ export default async function TasksPage({
                 saved: activeSavedView,
                 due: params.due,
                 assignee: params.assignee,
+                assigneeUserId: params.assigneeUserId,
                 clientId: params.clientId,
                 sourceType: params.sourceType,
                 priority: params.priority,
                 periodId: params.periodId,
                 new: "1",
               })}`}
-              className="rounded-xl border border-[#2563EB] bg-[#2563EB] px-3.5 py-2 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-[#1D4ED8] hover:bg-[#1D4ED8]"
+              className={buttonStyles("primary", "px-3.5 py-2")}
             >
               New Task
             </Link>
             <Link
               href={`/tasks?${buildQueryString({ ...params, view: "flat", new: undefined })}`}
-              className={`rounded-xl border px-3.5 py-2 text-sm font-semibold shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition ${
+              className={
                 selectedView === "flat"
-                  ? "border-[#2563EB] bg-[#2563EB] text-white"
-                  : "border-[#E5E7EB] bg-white text-[#1F2937] hover:bg-[#F9FAFB]"
-              }`}
+                  ? buttonStyles("primary", "px-3.5 py-2")
+                  : buttonStyles("secondary", "px-3.5 py-2")
+              }
             >
               Flat List
             </Link>
             <Link
               href={`/tasks?${buildQueryString({ ...params, view: "status", new: undefined })}`}
-              className={`rounded-xl border px-3.5 py-2 text-sm font-semibold shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition ${
+              className={
                 selectedView === "status"
-                  ? "border-[#2563EB] bg-[#2563EB] text-white"
-                  : "border-[#E5E7EB] bg-white text-[#1F2937] hover:bg-[#F9FAFB]"
-              }`}
+                  ? buttonStyles("primary", "px-3.5 py-2")
+                  : buttonStyles("secondary", "px-3.5 py-2")
+              }
             >
               By Status
+            </Link>
+            <Link
+              href={`/tasks?${buildQueryString({ ...params, view: "client", new: undefined })}`}
+              className={
+                selectedView === "client"
+                  ? buttonStyles("primary", "px-3.5 py-2")
+                  : buttonStyles("secondary", "px-3.5 py-2")
+              }
+            >
+              By Client
             </Link>
           </div>
         }
       />
-
-      <Panel title="Focus Views" subtitle="Jump straight into the most common controller work queues." className="p-4">
-        <div className="flex flex-wrap gap-2">
-          {SAVED_VIEWS.map((view) => (
-            <Link
-              key={view.key}
-              href={`/tasks?${buildQueryString({
-                view: selectedView,
-                saved: view.key,
-                clientId: params.clientId,
-                assignee: params.assignee,
-                sourceType: params.sourceType,
-                priority: params.priority,
-              })}`}
-              className={`rounded-xl border px-3.5 py-2 text-sm font-semibold shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition ${
-                activeSavedView === view.key
-                  ? "border-[#2563EB] bg-[#EFF6FF] text-[#2563EB]"
-                  : "border-[#E5E7EB] bg-white text-[#1F2937] hover:bg-[#F9FAFB]"
-              }`}
-            >
-              {view.label}
-            </Link>
-          ))}
-          <Link
-            href={`/tasks?${buildQueryString({ view: selectedView })}`}
-            className="rounded-xl border border-[#E5E7EB] bg-white px-3.5 py-2 text-sm font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-[#F9FAFB]"
-          >
-            Clear Focus
-          </Link>
-        </div>
-      </Panel>
-
-      <Panel title="Filters" subtitle="Refine the task board by owner, client, timing, source, and priority." className="p-4">
-        <form method="get" className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <input type="hidden" name="view" value={selectedView} />
-          <Field label="Due window">
-            <Select name="due" defaultValue={params.due ?? ""}>
-              <option value="">All due dates</option>
-              <option value="today">Today</option>
-              <option value="overdue">Overdue</option>
-              <option value="this_week">Due This Week</option>
-            </Select>
-          </Field>
-          <Field label="Assignee">
-            <Select name="assignee" defaultValue={params.assignee ?? ""}>
-              <option value="">All assignees</option>
-              {assignees.map((assignee) => (
-                <option key={assignee} value={assignee}>
-                  {assignee}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Client">
-            <Select name="clientId" defaultValue={params.clientId ?? ""}>
-              <option value="">All clients</option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Source">
-            <Select name="sourceType" defaultValue={params.sourceType ?? ""}>
-              <option value="">All sources</option>
-              <option value="TEMPLATE_GENERATED">Generated</option>
-              <option value="IMPORTED">Imported</option>
-              <option value="CARRYFORWARD">Carryforward</option>
-              <option value="MANUAL">Manual</option>
-            </Select>
-          </Field>
-          <Field label="Priority">
-            <Select name="priority" defaultValue={params.priority ?? ""}>
-              <option value="">All priorities</option>
-              <option value="LOW">Low</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="HIGH">High</option>
-              <option value="CRITICAL">Critical</option>
-            </Select>
-          </Field>
-          <div className="flex items-end gap-3">
-            <Button type="submit">Apply</Button>
-            <Link
-              href={`/tasks?${buildQueryString({ view: selectedView })}`}
-              className="inline-flex items-center justify-center rounded-xl border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-[#F9FAFB]"
-            >
-              Reset
-            </Link>
-          </div>
-        </form>
-      </Panel>
 
       {showNewTaskForm ? (
         <Panel title="New Task" subtitle="Create a one-off manual task and default it from the current client or period context when available.">
@@ -323,8 +250,18 @@ export default async function TasksPage({
             <Field label="Category">
               <Input name="category" placeholder="Reporting" />
             </Field>
-            <Field label="Assignee">
-              <Input name="assignee" defaultValue={params.assignee ?? ""} placeholder="Domenica" />
+            <Field label="Assigned teammate">
+              <Select name="assigneeUserId" defaultValue={params.assigneeUserId ?? ""}>
+                <option value="">No linked teammate</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Owner label">
+              <Input name="assignee" defaultValue={params.assignee ?? ""} placeholder="Imported owner or display label" />
             </Field>
             <Field label="Due date">
               <Input name="dueDate" type="date" />
@@ -363,7 +300,7 @@ export default async function TasksPage({
               <Button type="submit">Create Task</Button>
               <Link
                 href={`/tasks?${currentQuery}`}
-                className="inline-flex items-center justify-center rounded-xl border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-[#F9FAFB]"
+                className={buttonStyles("secondary")}
               >
                 Cancel
               </Link>
@@ -372,32 +309,142 @@ export default async function TasksPage({
         </Panel>
       ) : null}
 
-      <section className="grid gap-3 xl:grid-cols-5">
-        {STATUS_SECTIONS.map((section) => (
-          <div
-            key={section.key}
-            className="rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(16,24,40,0.04)]"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-[#1F2937]">{section.label}</p>
-              <span className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1 text-[11px] font-semibold text-[#6B7280]">
-                {counts.get(section.key) ?? 0}
-              </span>
-            </div>
-            <p className="mt-1 text-xs leading-5 text-[#6B7280]">{section.description}</p>
-          </div>
-        ))}
-      </section>
-
       {selectedView === "flat" ? (
-        <Panel title="All Tasks" subtitle={`${filteredTasks.length} task${filteredTasks.length === 1 ? "" : "s"} in the current result set.`} className="p-4">
-          <TaskTable tasks={filteredTasks} formId="bulk-flat" showClient />
+        <Panel title="All Tasks" subtitle={`${openFilteredTasks.length} open task${openFilteredTasks.length === 1 ? "" : "s"} in the current result set.`} className="p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_24px_rgba(16,24,40,0.06)]">
+          <TaskFiltersBar
+            selectedView={selectedView}
+            activeSavedView={activeSavedView}
+            params={params}
+            assignees={assignees}
+            clients={clients}
+          />
+          <TaskTable tasks={openFilteredTasks} formId="bulk-flat" showClient users={users} emptyLabel="No open tasks match the current filters." />
+          <details className="rounded-xl border border-[#E5E7EB] bg-[#FCFCFD]">
+            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-[#1F2937]">
+              Done ({completedFilteredTasks.length})
+            </summary>
+            <div className="border-t border-[#E5E7EB] px-4 py-4">
+              <TaskTable tasks={completedFilteredTasks} formId="bulk-complete" showClient users={users} hideBulkActions emptyLabel="No completed tasks in the current result set." />
+            </div>
+          </details>
         </Panel>
+      ) : selectedView === "client" ? (
+        <div className="space-y-6">
+          <Panel title="Task Filters" subtitle="Refine the client board without leaving the task workspace." className="p-4">
+            <TaskFiltersBar
+              selectedView={selectedView}
+              activeSavedView={activeSavedView}
+              params={params}
+              assignees={assignees}
+              clients={clients}
+            />
+          </Panel>
+          {groupTasksByClient(openFilteredTasks).map((group) => (
+            <Panel
+              key={group.clientId}
+              title={group.clientName}
+              subtitle={`${group.tasks.length} open task${group.tasks.length === 1 ? "" : "s"} for this client.`}
+              className="p-4"
+            >
+              <div className="mb-3 flex items-center justify-between gap-3 border-b border-[#E5E7EB] pb-2">
+                <div className="text-xs text-[#6B7280]">Client workspace view</div>
+                <div className="flex gap-3">
+                  <Link
+                    href={`/tasks?${buildQueryString({
+                      view: selectedView,
+                      clientId: group.clientId,
+                      periodId: group.tasks[0]?.periodInstance.id,
+                      new: "1",
+                    })}`}
+                    className="text-xs font-semibold text-[#2563EB]"
+                  >
+                    New Task for Client
+                  </Link>
+                  <Link href={`/clients/${group.clientId}`} className="text-xs font-semibold text-[#2563EB]">
+                    Open Client
+                  </Link>
+                </div>
+              </div>
+              <TaskTable tasks={group.tasks} formId={`bulk-client-${group.clientId}`} users={users} showClient={false} emptyLabel="No open tasks for this client." />
+            </Panel>
+          ))}
+          {groupTasksByClient(openFilteredTasks).length === 0 ? (
+            <Panel title="By Client" subtitle="No open tasks match the current filters." className="p-4">
+              <p className="text-sm text-[#6B7280]">Try widening the filters or clearing the quick view.</p>
+            </Panel>
+          ) : null}
+          <details className="rounded-2xl border border-[#E5E7EB] bg-white">
+            <summary className="cursor-pointer list-none px-5 py-4 text-base font-semibold text-[#1F2937]">
+              Done ({completedFilteredTasks.length})
+            </summary>
+            <div className="border-t border-[#E5E7EB] p-4">
+              {groupTasksByClient(completedFilteredTasks).length === 0 ? (
+                <p className="text-sm text-[#6B7280]">No completed tasks in the current result set.</p>
+              ) : (
+                <div className="space-y-4">
+                  {groupTasksByClient(completedFilteredTasks).map((group) => (
+                    <div key={group.clientId} className="space-y-2">
+                      <div className="flex items-center justify-between gap-3 border-b border-[#E5E7EB] pb-2">
+                        <div>
+                          <p className="text-sm font-semibold text-[#1F2937]">{group.clientName}</p>
+                          <p className="text-xs text-[#6B7280]">
+                            {group.tasks.length} completed task{group.tasks.length === 1 ? "" : "s"}
+                          </p>
+                        </div>
+                      </div>
+                      <TaskTable tasks={group.tasks} formId={`bulk-client-complete-${group.clientId}`} users={users} hideBulkActions emptyLabel="No completed tasks for this client." />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </details>
+        </div>
       ) : (
         <div className="space-y-6">
+          <Panel title="Task Filters" subtitle="Refine the status board without leaving the task workspace." className="p-4">
+            <TaskFiltersBar
+              selectedView={selectedView}
+              activeSavedView={activeSavedView}
+              params={params}
+              assignees={assignees}
+              clients={clients}
+            />
+          </Panel>
           {STATUS_SECTIONS.map((section) => {
             const sectionTasks = filteredTasks.filter((task) => task.status === section.key);
             const groups = groupTasksByClient(sectionTasks);
+
+            if (section.key === TaskStatus.COMPLETE) {
+              return (
+                <details key={section.key} className="rounded-2xl border border-[#E5E7EB] bg-white">
+                  <summary className="cursor-pointer list-none px-5 py-4 text-base font-semibold text-[#1F2937]">
+                    Done ({sectionTasks.length})
+                  </summary>
+                  <div className="border-t border-[#E5E7EB] p-4">
+                    {sectionTasks.length === 0 ? (
+                      <p className="text-sm text-[#6B7280]">No completed tasks right now.</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {groups.map((group) => (
+                          <div key={group.clientId} className="space-y-2">
+                            <div className="flex items-center justify-between gap-3 border-b border-[#E5E7EB] pb-2">
+                              <div>
+                                <p className="text-sm font-semibold text-[#1F2937]">{group.clientName}</p>
+                                <p className="text-xs text-[#6B7280]">
+                                  {group.tasks.length} task{group.tasks.length === 1 ? "" : "s"}
+                                </p>
+                              </div>
+                            </div>
+                            <TaskTable tasks={group.tasks} formId={`bulk-${section.key}-${group.clientId}`} users={users} hideBulkActions emptyLabel="No completed tasks." />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </details>
+              );
+            }
 
             return (
               <Panel
@@ -436,7 +483,7 @@ export default async function TasksPage({
                             </Link>
                           </div>
                         </div>
-                        <TaskTable tasks={group.tasks} formId={`bulk-${section.key}-${group.clientId}`} />
+                        <TaskTable tasks={group.tasks} formId={`bulk-${section.key}-${group.clientId}`} users={users} emptyLabel={`No ${section.label.toLowerCase()} tasks.`} />
                       </div>
                     ))}
                   </div>
@@ -453,35 +500,50 @@ export default async function TasksPage({
 function TaskTable({
   tasks,
   formId,
+  users,
   showClient = false,
+  hideBulkActions = false,
+  emptyLabel = "No tasks match the current filters.",
 }: {
   tasks: TaskRow[];
   formId: string;
+  users: Array<{ id: string; name: string }>;
   showClient?: boolean;
+  hideBulkActions?: boolean;
+  emptyLabel?: string;
 }) {
   return (
     <div className="space-y-4">
-      <form id={formId} action={bulkUpdateTasksAction} className="grid gap-3 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-3 md:grid-cols-[1.2fr_1fr_1fr_auto]">
-        <Field label="Bulk assignee">
-          <Input name="assignee" placeholder="Reassign selected tasks" />
-        </Field>
-        <Field label="Bulk status">
-          <Select name="status" defaultValue="">
-            <option value="">No status change</option>
-            <option value="NOT_STARTED">Not Started</option>
-            <option value="IN_PROGRESS">In Progress</option>
-            <option value="WAITING_ON_CLIENT">Waiting on Client</option>
-            <option value="BLOCKED">Blocked</option>
-            <option value="COMPLETE">Complete</option>
-          </Select>
-        </Field>
-        <Field label="Bulk due date">
-          <Input name="dueDate" type="date" />
-        </Field>
-        <div className="flex items-end">
-          <Button type="submit" className="px-3 py-2">Apply to Selected</Button>
-        </div>
-      </form>
+      {hideBulkActions ? null : (
+        <form id={formId} action={bulkUpdateTasksAction} className="grid gap-3 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-3 md:grid-cols-[1.2fr_1fr_1fr_auto]">
+          <Field label="Bulk assignee">
+            <Select name="assigneeUserId" defaultValue="">
+              <option value="">No assignee change</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Bulk status">
+            <Select name="status" defaultValue="">
+              <option value="">No status change</option>
+              <option value="NOT_STARTED">Not Started</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="WAITING_ON_CLIENT">Waiting on Client</option>
+              <option value="BLOCKED">Blocked</option>
+              <option value="COMPLETE">Complete</option>
+            </Select>
+          </Field>
+          <Field label="Bulk due date">
+            <Input name="dueDate" type="date" />
+          </Field>
+          <div className="flex items-end">
+            <Button type="submit" className="px-3 py-2">Apply to Selected</Button>
+          </div>
+        </form>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white">
         <table className="min-w-full text-left text-[13px]">
@@ -500,6 +562,13 @@ function TaskTable({
             </tr>
           </thead>
           <tbody>
+            {tasks.length === 0 ? (
+              <tr className="border-t border-[#E5E7EB]">
+                <td colSpan={showClient ? 10 : 9} className="px-4 py-8 text-center text-sm text-[#6B7280]">
+                  {emptyLabel}
+                </td>
+              </tr>
+            ) : null}
             {tasks.map((task) => (
               <tr key={task.id} className="border-t border-[#E5E7EB] align-top text-[#374151]">
                 <td className="px-3 py-2.5">
@@ -513,14 +582,22 @@ function TaskTable({
                 </td>
                 <td className="px-3 py-2.5">
                   {task.status === TaskStatus.COMPLETE ? (
-                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669]">
-                      <CheckCircle2 className="h-4 w-4" />
-                    </span>
-                  ) : (
-                    <form action={updateTaskStatusAction}>
+                    <form action={toggleTaskCompletionAction}>
                       <input type="hidden" name="id" value={task.id} />
                       <input type="hidden" name="periodId" value={task.periodInstance.id} />
-                      <input type="hidden" name="status" value="COMPLETE" />
+                      <button
+                        type="submit"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#A7F3D0] bg-[#ECFDF5] text-[#059669] transition hover:border-[#059669] hover:bg-white"
+                        aria-label={`Restore ${task.title} to its previous status`}
+                        title="Restore previous status"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                      </button>
+                    </form>
+                  ) : (
+                    <form action={toggleTaskCompletionAction}>
+                      <input type="hidden" name="id" value={task.id} />
+                      <input type="hidden" name="periodId" value={task.periodInstance.id} />
                       <button
                         type="submit"
                         className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#D1D5DB] bg-white text-[#9CA3AF] transition hover:border-[#059669] hover:bg-[#ECFDF5] hover:text-[#059669]"
@@ -573,7 +650,7 @@ function TaskTable({
                       <option value="BLOCKED">Blocked</option>
                       <option value="COMPLETE">Complete</option>
                     </Select>
-                    <Button type="submit" variant="secondary" className="px-2.5 py-2 text-xs">
+                    <Button type="submit" className="px-2.5 py-2 text-xs">
                       Save
                     </Button>
                   </form>
@@ -603,6 +680,91 @@ function TaskTable({
         </table>
       </div>
     </div>
+  );
+}
+
+function TaskFiltersBar({
+  selectedView,
+  activeSavedView,
+  params,
+  assignees,
+  clients,
+}: {
+  selectedView: string;
+  activeSavedView?: string;
+  params: SearchParams;
+  assignees: Array<{ id: string; name: string }>;
+  clients: Array<{ id: string; name: string }>;
+}) {
+  return (
+    <form method="get" className="mb-4 grid gap-3 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-3 md:grid-cols-3 xl:grid-cols-7">
+      <input type="hidden" name="view" value={selectedView} />
+      <Field label="Quick view">
+        <Select name="saved" defaultValue={activeSavedView ?? ""}>
+          <option value="">All work</option>
+          {SAVED_VIEWS.map((view) => (
+            <option key={view.key} value={view.key}>
+              {view.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Due window">
+        <Select name="due" defaultValue={params.due ?? ""}>
+          <option value="">All due dates</option>
+          <option value="today">Today</option>
+          <option value="overdue">Overdue</option>
+          <option value="this_week">Due This Week</option>
+        </Select>
+      </Field>
+      <Field label="Assignee">
+        <Select name="assigneeUserId" defaultValue={params.assigneeUserId ?? ""}>
+          <option value="">All teammates</option>
+          {assignees.map((assignee) => (
+            <option key={assignee.id} value={assignee.id}>
+              {assignee.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Client">
+        <Select name="clientId" defaultValue={params.clientId ?? ""}>
+          <option value="">All clients</option>
+          {clients.map((client) => (
+            <option key={client.id} value={client.id}>
+              {client.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Source">
+        <Select name="sourceType" defaultValue={params.sourceType ?? ""}>
+          <option value="">All sources</option>
+          <option value="TEMPLATE_GENERATED">Generated</option>
+          <option value="IMPORTED">Imported</option>
+          <option value="CARRYFORWARD">Carryforward</option>
+          <option value="MANUAL">Manual</option>
+        </Select>
+      </Field>
+      <Field label="Priority">
+        <Select name="priority" defaultValue={params.priority ?? ""}>
+          <option value="">All priorities</option>
+          <option value="LOW">Low</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="HIGH">High</option>
+          <option value="CRITICAL">Critical</option>
+        </Select>
+      </Field>
+      <div className="flex items-end gap-3">
+        <Button type="submit">Apply</Button>
+        <Link
+          href={`/tasks?${buildQueryString({ view: selectedView })}`}
+          className={buttonStyles("secondary")}
+        >
+          Reset
+        </Link>
+      </div>
+    </form>
   );
 }
 
@@ -640,8 +802,14 @@ function matchesClient(task: TaskRow, clientId?: string) {
   return !clientId || task.periodInstance.client.id === clientId;
 }
 
-function matchesAssignee(task: TaskRow, assignee?: string) {
+function matchesAssignee(task: TaskRow, assignee?: string, assigneeUserId?: string) {
+  if (assigneeUserId) return task.assigneeUserId === assigneeUserId;
   return !assignee || task.assignee === assignee;
+}
+
+function matchesCurrentUser(task: TaskRow, saved: string | undefined, currentUserId: string) {
+  if (saved !== "mine") return true;
+  return task.assigneeUserId === currentUserId;
 }
 
 function matchesSourceType(task: TaskRow, sourceType?: string) {

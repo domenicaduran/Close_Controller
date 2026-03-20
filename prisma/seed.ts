@@ -7,12 +7,20 @@ import {
   TaskStatus,
   WorkflowType,
 } from "@prisma/client";
+import { randomBytes, scryptSync } from "node:crypto";
 import { endOfMonth, startOfMonth } from "date-fns";
 
 import { prisma } from "../lib/prisma";
 import { buildPeriodKey, buildPeriodLabel, generatePeriodInstance } from "../lib/workflow";
 
+function hashPassword(password: string) {
+  const salt = randomBytes(16).toString("hex");
+  return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
+}
+
 async function main() {
+  await prisma.userSession.deleteMany();
+  await prisma.clientUserAccess.deleteMany();
   await prisma.evidenceLink.deleteMany();
   await prisma.taskNote.deleteMany();
   await prisma.taskInstance.deleteMany();
@@ -24,6 +32,34 @@ async function main() {
   await prisma.clientTemplateAssignment.deleteMany();
   await prisma.workflowTemplate.deleteMany();
   await prisma.client.deleteMany();
+  await prisma.user.deleteMany();
+
+  const [domenica, alex, jordan] = await Promise.all([
+    prisma.user.create({
+      data: {
+        name: "Domenica Duran",
+        email: "dedhern@gmail.com",
+        title: "Controller",
+        passwordHash: hashPassword("CloseController1"),
+      },
+    }),
+    prisma.user.create({
+      data: {
+        name: "Alex Rivera",
+        email: "alex@closecontroller.local",
+        title: "Accounting Manager",
+        passwordHash: hashPassword("CloseController1"),
+      },
+    }),
+    prisma.user.create({
+      data: {
+        name: "Jordan Lee",
+        email: "jordan@closecontroller.local",
+        title: "Senior Accountant",
+        passwordHash: hashPassword("CloseController1"),
+      },
+    }),
+  ]);
 
   const [northwind, summit] = await Promise.all([
     prisma.client.create({
@@ -58,6 +94,7 @@ async function main() {
             title: "Close subledgers",
             category: "Pre-close",
             defaultOwner: "Domenica",
+            defaultOwnerUserId: domenica.id,
             recurrenceType: RecurrenceType.MONTHLY,
             dueDateRuleType: "OFFSET_FROM_PERIOD_START",
             offsetFromPeriodStart: 1,
@@ -69,6 +106,7 @@ async function main() {
             title: "Reconcile bank accounts",
             category: "Cash",
             defaultOwner: "Domenica",
+            defaultOwnerUserId: domenica.id,
             recurrenceType: RecurrenceType.MONTHLY,
             dueDateRuleType: "DAY_OF_MONTH",
             dueDayOfMonth: 5,
@@ -81,6 +119,7 @@ async function main() {
             title: "Prepare close package",
             category: "Reporting",
             defaultOwner: "Reviewer",
+            defaultOwnerUserId: alex.id,
             recurrenceType: RecurrenceType.MONTHLY,
             dueDateRuleType: "BUSINESS_DAY_OFFSET_FROM_PERIOD_END",
             businessDayOffset: 3,
@@ -107,6 +146,7 @@ async function main() {
             title: "Prepare quarterly flux analysis",
             category: "Reporting",
             defaultOwner: "Domenica",
+            defaultOwnerUserId: domenica.id,
             recurrenceType: RecurrenceType.QUARTERLY,
             dueDateRuleType: "BUSINESS_DAY_OFFSET_FROM_PERIOD_END",
             businessDayOffset: 5,
@@ -118,6 +158,7 @@ async function main() {
             title: "Review disclosure support",
             category: "Review",
             defaultOwner: "Reviewer",
+            defaultOwnerUserId: alex.id,
             recurrenceType: RecurrenceType.QUARTERLY,
             dueDateRuleType: "BUSINESS_DAY_OFFSET_FROM_PERIOD_END",
             businessDayOffset: 7,
@@ -143,6 +184,7 @@ async function main() {
             title: "Refresh PBC tracker",
             category: "Audit",
             defaultOwner: "Domenica",
+            defaultOwnerUserId: domenica.id,
             recurrenceType: RecurrenceType.YEARLY,
             dueDateRuleType: "OFFSET_FROM_PERIOD_START",
             offsetFromPeriodStart: 2,
@@ -161,6 +203,15 @@ async function main() {
       { clientId: northwind.id, templateId: quarterEndTemplate.id },
       { clientId: northwind.id, templateId: auditTemplate.id },
       { clientId: summit.id, templateId: monthEndTemplate.id },
+    ],
+  });
+
+  await prisma.clientUserAccess.createMany({
+    data: [
+      { clientId: northwind.id, userId: domenica.id, roleLabel: "Lead controller" },
+      { clientId: northwind.id, userId: alex.id, roleLabel: "Reviewer" },
+      { clientId: summit.id, userId: domenica.id, roleLabel: "Controller" },
+      { clientId: summit.id, userId: jordan.id, roleLabel: "Preparer" },
     ],
   });
 
@@ -188,6 +239,7 @@ async function main() {
         status: TaskStatus.COMPLETE,
         completedAt: new Date("2026-04-01T09:00:00Z"),
         notes: "Subledgers closed and tie-out completed.",
+        assigneeUserId: domenica.id,
       },
     });
   }
@@ -199,12 +251,14 @@ async function main() {
         status: TaskStatus.BLOCKED,
         blockedReason: "Waiting on final bank statement download.",
         notes: "Treasury portal access expired during close week.",
+        assigneeUserId: domenica.id,
       },
     });
 
     await prisma.taskNote.create({
       data: {
         taskInstanceId: generatedTasks[1].id,
+        authorUserId: alex.id,
         body: "Need April 2 follow-up with treasury support for the March statement.",
       },
     });
@@ -296,6 +350,7 @@ async function main() {
       title: "Imported checklist follow-up",
       description: "One-off imported task batch item from sample close checklist.",
       assignee: "Alex Rivera",
+      assigneeUserId: alex.id,
       sourceType: TaskSourceType.IMPORTED,
       status: TaskStatus.WAITING_ON_CLIENT,
       priority: Priority.HIGH,

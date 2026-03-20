@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { MetricCard, PageHeader, Panel, StatusBadge } from "@/components/ui";
+import { requireUser } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
@@ -8,8 +9,10 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const today = new Date();
+  const currentUser = await requireUser();
 
   const [
+    myOpenTasks,
     overdueTasks,
     dueTodayTasks,
     blockedTasks,
@@ -18,6 +21,12 @@ export default async function HomePage() {
     pbcSummary,
     workflowCounts,
   ] = await Promise.all([
+    prisma.taskInstance.count({
+      where: {
+        assigneeUserId: currentUser.id,
+        status: { not: "COMPLETE" },
+      },
+    }),
     prisma.taskInstance.findMany({
       where: {
         dueDate: { lt: today },
@@ -84,17 +93,24 @@ export default async function HomePage() {
       <PageHeader
         title="Dashboard"
         description="Monitor close work, audit support, and recurring controller operations across all active clients."
-        action={
-          <Link
-            href="/periods"
-            className="rounded-xl border border-[#2563EB] bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-[#1D4ED8] hover:bg-[#1D4ED8]"
-          >
-            Generate Period
-          </Link>
-        }
       />
 
-      <section className="grid gap-4 xl:grid-cols-4">
+      <section className="grid gap-4 xl:grid-cols-6">
+        <MetricCard
+          label="Active Clients"
+          value={String(clients.length)}
+          detail="Current client relationships in the active workspace."
+        />
+        <MetricCard
+          label="Open Periods"
+          value={String(periods.length)}
+          detail="Workflow periods that are still active or in progress."
+        />
+        <MetricCard
+          label="My Tasks"
+          value={String(myOpenTasks)}
+          detail="Open tasks currently assigned to you."
+        />
         <MetricCard
           label="Today"
           value={String(dueTodayTasks.length)}
@@ -109,11 +125,6 @@ export default async function HomePage() {
           label="Blocked"
           value={String(blockedTasks.length)}
           detail="Items waiting on dependencies, evidence, or decisions."
-        />
-        <MetricCard
-          label="PBC Requests"
-          value={String(pbcSummary.reduce((sum, item) => sum + item._count.status, 0))}
-          detail="Audit support requests currently being tracked."
         />
       </section>
 
@@ -279,7 +290,7 @@ function TaskList({
               <p className="font-semibold text-[#1F2937]">{task.title}</p>
               <p className="mt-1 text-sm text-[#6B7280]">
                 {task.periodInstance.client.name} -{" "}
-                <Link href={`/periods/${task.periodInstance.id}`} className="font-medium text-[#1F2937]">
+                <Link href={`/tasks/${task.id}`} className="font-medium text-[#1F2937]">
                   {task.periodInstance.label}
                 </Link>
               </p>

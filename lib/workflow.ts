@@ -250,6 +250,7 @@ export async function generatePeriodInstance(input: GeneratePeriodInput) {
       description: task.description,
       category: task.category,
       defaultOwner: task.defaultOwner,
+      defaultOwnerUserId: task.defaultOwnerUserId,
       recurrenceType: task.recurrenceType,
       dueDateRuleType: task.dueDateRuleType,
       carryforwardBehavior: task.carryforwardBehavior,
@@ -288,6 +289,7 @@ export async function generatePeriodInstance(input: GeneratePeriodInput) {
           description: task.description,
           category: task.category,
           assignee: task.defaultOwner,
+          assigneeUserId: task.defaultOwnerUserId,
           dueDate: calculateDueDate(task, input.periodStart, input.periodEnd),
           priority: task.defaultPriority,
           sortOrder: task.sortOrder,
@@ -345,6 +347,7 @@ export async function generatePeriodInstance(input: GeneratePeriodInput) {
             description: priorTask.description,
             category: priorTask.category,
             assignee: priorTask.assignee,
+            assigneeUserId: priorTask.assigneeUserId,
             dueDate: priorTask.dueDate,
             sourceType: TaskSourceType.CARRYFORWARD,
             priority: priorTask.priority,
@@ -362,6 +365,7 @@ export async function generatePeriodInstance(input: GeneratePeriodInput) {
           await tx.taskNote.createMany({
             data: priorTask.comments.map((comment) => ({
               taskInstanceId: carryforwardTask.id,
+              authorUserId: comment.authorUserId,
               body: comment.body,
               copiedForward: true,
             })),

@@ -1,5 +1,7 @@
 import { ReactNode } from "react";
 
+import { clsx } from "clsx";
+
 import { statusTone } from "@/lib/format";
 
 export function PageHeader({
@@ -127,17 +129,30 @@ export function Button({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary";
 }) {
-  const variants = {
-    primary: "border border-[#2563EB] bg-[#2563EB] text-white hover:border-[#1D4ED8] hover:bg-[#1D4ED8]",
-    secondary: "border border-[#E5E7EB] bg-white text-[#1F2937] hover:bg-[#F9FAFB]",
-  };
-
   return (
     <button
       {...props}
-      className={`inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition ${variants[variant]} ${className}`}
+      className={buttonStyles(variant, className)}
     >
       {children}
     </button>
+  );
+}
+
+export function buttonStyles(
+  variant: "primary" | "secondary" = "primary",
+  className = "",
+) {
+  const variants = {
+    primary:
+      "border border-[#2563EB] bg-[#2563EB] !text-white visited:!text-white hover:border-[#1D4ED8] hover:bg-[#1D4ED8] hover:!text-white",
+    secondary:
+      "border border-[#E5E7EB] bg-white text-[#1F2937] visited:text-[#1F2937] hover:bg-[#F9FAFB] hover:text-[#1F2937]",
+  };
+
+  return clsx(
+    "inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition",
+    variants[variant],
+    className,
   );
 }

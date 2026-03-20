@@ -1,14 +1,21 @@
 import { ReactNode } from "react";
 
-import { prisma } from "@/lib/prisma";
+import { logoutAction } from "@/app/actions";
+import { getCurrentUser } from "@/lib/auth";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { SidebarNav } from "./sidebar-nav";
 
 export async function AppShell({ children }: { children: ReactNode }) {
-  const [clientCount, openPeriods, blockedTasks] = await Promise.all([
-    prisma.client.count({ where: { isArchived: false } }),
-    prisma.periodInstance.count({ where: { status: { not: "ARCHIVED" } } }),
-    prisma.taskInstance.count({ where: { status: "BLOCKED" } }),
-  ]);
+  const pathname = (await headers()).get("x-pathname");
+  const currentUser = await getCurrentUser();
+
+  if (!currentUser) {
+    if (pathname !== "/login") {
+      redirect("/login");
+    }
+    return <div className="min-h-screen bg-[#F7F8FA]">{children}</div>;
+  }
 
   return (
     <div className="min-h-screen bg-[#F7F8FA]">
@@ -28,24 +35,38 @@ export async function AppShell({ children }: { children: ReactNode }) {
 
           <SidebarNav />
 
-          <div className="mt-8 grid gap-3">
-            <StatCard label="Active Clients" value={String(clientCount)} />
-            <StatCard label="Open Periods" value={String(openPeriods)} />
-            <StatCard label="Blocked Tasks" value={String(blockedTasks)} />
+          <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-800/90 px-4 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.18)]">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Current User</p>
+            <div className="mt-3 flex items-start gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-600 bg-slate-700 text-sm font-semibold text-white">
+                {currentUser.name
+                  .split(" ")
+                  .map((part) => part[0])
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-white">{currentUser.name}</p>
+                <p className="mt-1 truncate text-xs text-slate-300">{currentUser.email}</p>
+                <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">
+                  {currentUser.title || "Internal team member"}
+                </p>
+              </div>
+            </div>
+            <form action={logoutAction} className="mt-4">
+              <button
+                type="submit"
+                className="w-full rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-slate-500 hover:bg-slate-950"
+              >
+                Sign Out
+              </button>
+            </form>
           </div>
         </aside>
 
         <main className="min-w-0 flex-1 py-1">{children}</main>
       </div>
-    </div>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-800/70 px-4 py-4">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tracking-[-0.02em] text-white">{value}</p>
     </div>
   );
 }

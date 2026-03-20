@@ -17,14 +17,20 @@ export default async function TemplateDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const template = await prisma.workflowTemplate.findUnique({
-    where: { id },
-    include: {
-      tasks: {
-        orderBy: { sortOrder: "asc" },
+  const [template, users] = await Promise.all([
+    prisma.workflowTemplate.findUnique({
+      where: { id },
+      include: {
+        tasks: {
+          orderBy: { sortOrder: "asc" },
+        },
       },
-    },
-  });
+    }),
+    prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
 
   if (!template) notFound();
 
@@ -88,8 +94,18 @@ export default async function TemplateDetailPage({
             <Field label="Category">
               <Input name="category" placeholder="Cash" />
             </Field>
-            <Field label="Default owner">
-              <Input name="defaultOwner" placeholder="Domenica" />
+            <Field label="Default teammate">
+              <Select name="defaultOwnerUserId" defaultValue="">
+                <option value="">No default teammate</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Fallback owner label">
+              <Input name="defaultOwner" placeholder="Imported owner or external label" />
             </Field>
             <Field label="Recurrence">
               <Select name="recurrenceType" defaultValue={template.recurrenceType}>
@@ -209,7 +225,17 @@ export default async function TemplateDetailPage({
                 <Field label="Category">
                   <Input name="category" defaultValue={task.category ?? ""} />
                 </Field>
-                <Field label="Default owner">
+                <Field label="Default teammate">
+                  <Select name="defaultOwnerUserId" defaultValue={task.defaultOwnerUserId ?? ""}>
+                    <option value="">No default teammate</option>
+                    {users.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Fallback owner label">
                   <Input name="defaultOwner" defaultValue={task.defaultOwner ?? ""} />
                 </Field>
                 <Field label="Recurrence">

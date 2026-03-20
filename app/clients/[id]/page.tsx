@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 
 import {
   assignTemplateToClientAction,
+  assignUserToClientAction,
   createSuggestedPeriodAction,
+  removeUserFromClientAction,
   removeTemplateAssignmentAction,
   toggleClientArchiveAction,
   updateClientAction,
@@ -20,10 +22,14 @@ export default async function ClientDetailPage({
 }) {
   const { id } = await params;
 
-  const [client, templates] = await Promise.all([
+  const [client, templates, users] = await Promise.all([
     prisma.client.findUnique({
       where: { id },
       include: {
+        teamMemberships: {
+          include: { user: true },
+          orderBy: { user: { name: "asc" } },
+        },
         templateAssignments: {
           include: { template: true },
           orderBy: { createdAt: "desc" },
@@ -39,11 +45,16 @@ export default async function ClientDetailPage({
       where: { isActive: true },
       orderBy: { name: "asc" },
     }),
+    prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   if (!client) notFound();
 
   const assignedTemplateIds = new Set(client.templateAssignments.map((assignment) => assignment.templateId));
+  const assignedUserIds = new Set(client.teamMemberships.map((membership) => membership.userId));
 
   return (
     <div className="space-y-6 py-2">
@@ -132,6 +143,65 @@ export default async function ClientDetailPage({
           </div>
         </Panel>
       </div>
+
+      <Panel title="Client Team" subtitle="Assign internal teammates to this client so ownership and collaboration stay clear.">
+        <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+          <form action={assignUserToClientAction} className="grid gap-4">
+            <input type="hidden" name="clientId" value={client.id} />
+            <Field label="Team member">
+              <Select name="userId" defaultValue="">
+                <option value="">Select teammate</option>
+                {users
+                  .filter((user) => !assignedUserIds.has(user.id))
+                  .map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name} {user.title ? `- ${user.title}` : ""}
+                    </option>
+                  ))}
+              </Select>
+            </Field>
+            <Field label="Role label">
+              <Input name="roleLabel" placeholder="Lead accountant" />
+            </Field>
+            <Button type="submit">Assign Team Member</Button>
+          </form>
+
+          <div className="space-y-3">
+            {client.teamMemberships.length > 0 ? (
+              client.teamMemberships.map((membership) => (
+                <div
+                  key={membership.id}
+                  className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4"
+                >
+                  <div>
+                    <p className="font-semibold text-slate-950">{membership.user.name}</p>
+                    <p className="text-sm text-slate-600">
+                      {membership.user.title || "Team member"} · {membership.user.email}
+                    </p>
+                    {membership.roleLabel ? (
+                      <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">
+                        {membership.roleLabel}
+                      </p>
+                    ) : null}
+                  </div>
+                  <form action={removeUserFromClientAction}>
+                    <input type="hidden" name="clientId" value={client.id} />
+                    <input type="hidden" name="userId" value={membership.userId} />
+                    <button
+                      type="submit"
+                      className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-slate-900"
+                    >
+                      Remove
+                    </button>
+                  </form>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-[#6B7280]">No team members are linked to this client yet.</p>
+            )}
+          </div>
+        </div>
+      </Panel>
 
       <Panel
         title="Create Period"

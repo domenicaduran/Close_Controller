@@ -18,6 +18,7 @@ import {
   Select,
   StatusBadge,
   TextArea,
+  buttonStyles,
 } from "@/components/ui";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
@@ -31,20 +32,29 @@ export default async function TaskDetailPage({
 }) {
   const { id } = await params;
 
-  const task = await prisma.taskInstance.findUnique({
-    where: { id },
-    include: {
-      periodInstance: {
-        include: {
-          client: true,
-          template: true,
+  const [task, users] = await Promise.all([
+    prisma.taskInstance.findUnique({
+      where: { id },
+      include: {
+        periodInstance: {
+          include: {
+            client: true,
+            template: true,
+          },
         },
+        comments: {
+          include: { authorUser: true },
+          orderBy: { createdAt: "desc" },
+        },
+        evidenceLinks: true,
+        carryforwardFromTask: true,
       },
-      comments: { orderBy: { createdAt: "desc" } },
-      evidenceLinks: true,
-      carryforwardFromTask: true,
-    },
-  });
+    }),
+    prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
 
   if (!task) notFound();
 
@@ -57,13 +67,13 @@ export default async function TaskDetailPage({
           <div className="flex gap-2">
             <Link
               href={`/periods/${task.periodInstance.id}`}
-              className="rounded-xl border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-[#F9FAFB]"
+              className={buttonStyles("secondary")}
             >
               Open Period
             </Link>
             <Link
               href="/tasks"
-              className="rounded-xl border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:bg-[#F9FAFB]"
+              className={buttonStyles("secondary")}
             >
               Back to Tasks
             </Link>
@@ -129,7 +139,17 @@ export default async function TaskDetailPage({
             <form action={updateTaskDetailsAction} className="grid gap-4 md:grid-cols-2">
               <input type="hidden" name="id" value={task.id} />
               <input type="hidden" name="periodId" value={task.periodInstance.id} />
-              <Field label="Assignee">
+              <Field label="Assigned teammate">
+                <Select name="assigneeUserId" defaultValue={task.assigneeUserId ?? ""}>
+                  <option value="">No linked teammate</option>
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Owner label">
                 <Input name="assignee" defaultValue={task.assignee ?? ""} />
               </Field>
               <Field label="Priority">
@@ -185,7 +205,7 @@ export default async function TaskDetailPage({
                     <div key={comment.id} className="rounded-xl border border-[#E5E7EB] px-3 py-3">
                       <p>{comment.body}</p>
                       <p className="mt-2 text-xs uppercase tracking-[0.2em] text-[#9CA3AF]">
-                        {formatDateTime(comment.createdAt)}
+                        {(comment.authorUser?.name ?? "Team note")} · {formatDateTime(comment.createdAt)}
                       </p>
                     </div>
                   ))}

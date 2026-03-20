@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function ClientsPage() {
   const clients = await prisma.client.findMany({
     include: {
+      teamMemberships: true,
       templateAssignments: {
         include: { template: true },
       },
@@ -19,6 +20,9 @@ export default async function ClientsPage() {
     },
     orderBy: [{ isArchived: "asc" }, { name: "asc" }],
   });
+
+  const activeClients = clients.filter((client) => !client.isArchived);
+  const archivedClients = clients.filter((client) => client.isArchived);
 
   return (
     <div className="space-y-6 py-2">
@@ -49,20 +53,21 @@ export default async function ClientsPage() {
           </form>
         </Panel>
 
-        <Panel title="Client Directory" subtitle="Desktop-optimized view of active and archived clients.">
+        <Panel title="Client Directory" subtitle="Desktop-optimized view of active client relationships.">
           <div className="overflow-hidden rounded-2xl border border-[#E5E7EB]">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-[#F9FAFB] text-[#6B7280]">
                 <tr>
                   <th className="px-4 py-3 font-medium">Client</th>
                   <th className="px-4 py-3 font-medium">Templates</th>
+                  <th className="px-4 py-3 font-medium">Team</th>
                   <th className="px-4 py-3 font-medium">Open Periods</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {clients.map((client) => (
+                {activeClients.map((client) => (
                   <tr key={client.id} className="border-t border-[#E5E7EB] text-[#374151]">
                     <td className="px-4 py-3">
                       <Link href={`/clients/${client.id}`} className="font-semibold text-[#1F2937]">
@@ -73,6 +78,7 @@ export default async function ClientsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">{client.templateAssignments.length}</td>
+                    <td className="px-4 py-3">{client.teamMemberships.length}</td>
                     <td className="px-4 py-3">{client.periodInstances.length}</td>
                     <td className="px-4 py-3">{client.isArchived ? "Archived" : "Active"}</td>
                     <td className="px-4 py-3">
@@ -87,8 +93,8 @@ export default async function ClientsPage() {
                           <input type="hidden" name="id" value={client.id} />
                           <input type="hidden" name="isArchived" value={String(client.isArchived)} />
                           <ClientActionButton
-                            actionLabel={client.isArchived ? "Restore" : "Archive"}
-                            variant={client.isArchived ? "neutral" : "warning"}
+                            actionLabel="Archive"
+                            variant="warning"
                           />
                         </form>
                         <form action={deleteClientAction}>
@@ -103,9 +109,85 @@ export default async function ClientsPage() {
                     </td>
                   </tr>
                 ))}
+                {activeClients.length === 0 ? (
+                  <tr className="border-t border-[#E5E7EB]">
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-[#6B7280]">
+                      No active clients yet.
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
+
+          <details className="mt-4 rounded-2xl border border-[#E5E7EB] bg-[#FCFCFD]">
+            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-[#1F2937]">
+              Archived Clients ({archivedClients.length})
+            </summary>
+            <div className="border-t border-[#E5E7EB]">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-[#F9FAFB] text-[#6B7280]">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Client</th>
+                    <th className="px-4 py-3 font-medium">Templates</th>
+                    <th className="px-4 py-3 font-medium">Team</th>
+                    <th className="px-4 py-3 font-medium">Open Periods</th>
+                    <th className="px-4 py-3 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {archivedClients.map((client) => (
+                    <tr key={client.id} className="border-t border-[#E5E7EB] text-[#374151]">
+                      <td className="px-4 py-3">
+                        <Link href={`/clients/${client.id}`} className="font-semibold text-[#1F2937]">
+                          {client.name}
+                        </Link>
+                        <div className="text-xs text-[#6B7280]">
+                          {client.primaryContact || "No contact"} {client.code ? `- ${client.code}` : ""}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">{client.templateAssignments.length}</td>
+                      <td className="px-4 py-3">{client.teamMemberships.length}</td>
+                      <td className="px-4 py-3">{client.periodInstances.length}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Link
+                            href={`/clients/${client.id}`}
+                            className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 text-xs font-semibold text-[#1F2937] shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-[#CBD5E1] hover:bg-[#F9FAFB]"
+                          >
+                            Open
+                          </Link>
+                          <form action={toggleClientArchiveAction}>
+                            <input type="hidden" name="id" value={client.id} />
+                            <input type="hidden" name="isArchived" value={String(client.isArchived)} />
+                            <ClientActionButton
+                              actionLabel="Restore"
+                              variant="neutral"
+                            />
+                          </form>
+                          <form action={deleteClientAction}>
+                            <input type="hidden" name="id" value={client.id} />
+                            <ClientActionButton
+                              actionLabel="Delete"
+                              variant="danger"
+                              confirmMessage="Deleting this client will also delete all related periods, tasks, PBC items, imports, and history for this client. Continue?"
+                            />
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {archivedClients.length === 0 ? (
+                    <tr className="border-t border-[#E5E7EB]">
+                      <td colSpan={5} className="px-4 py-8 text-center text-sm text-[#6B7280]">
+                        No archived clients.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </details>
         </Panel>
       </div>
     </div>

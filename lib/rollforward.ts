@@ -23,13 +23,14 @@ export type RollforwardCandidateTask = {
   blockedReason: string | null;
   dueDate: Date | null;
   assignee: string | null;
+  assigneeUserId?: string | null;
   priority: string;
   description: string | null;
   category: string | null;
   evidenceRequired: boolean;
   reviewerRequired: boolean;
   templateTaskSnapshot: string;
-  comments: Array<{ body: string }>;
+  comments: Array<{ body: string; authorUserId?: string | null }>;
   templateTask: null | {
     recurrenceType: RecurrenceType;
     carryforwardBehavior: CarryforwardBehavior;

@@ -23,6 +23,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  clearSession,
+  createSession,
+  findUserByOwnerLabel,
+  hashPassword,
+  requireUser,
+  verifyPassword,
+} from "@/lib/auth";
+import {
   normalizePBCStatus,
   normalizePriority,
   normalizeRecurrence,
@@ -41,11 +49,13 @@ import {
 import {
   clientSchema,
   importUploadSchema,
+  loginSchema,
   manualTaskSchema,
   periodGenerationSchema,
   rollforwardSchema,
   templateSchema,
   templateTaskSchema,
+  userSchema,
 } from "@/lib/validation";
 
 function stringValue(formData: FormData, key: string) {
@@ -65,6 +75,224 @@ function numberOrUndefined(value?: string) {
   if (!value) return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+async function resolveUserChoice(userId?: string, fallbackLabel?: string) {
+  const normalizedUserId = userId?.trim();
+  const normalizedLabel = fallbackLabel?.trim();
+
+  if (normalizedUserId) {
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: normalizedUserId },
+      select: { id: true, name: true },
+    });
+
+    return {
+      userId: user.id,
+      label: user.name,
+    };
+  }
+
+  return {
+    userId: null,
+    label: normalizedLabel || null,
+  };
+}
+
+export async function bootstrapUserAction(formData: FormData) {
+  const existingUsers = await prisma.user.count();
+  if (existingUsers > 0) {
+    throw new Error("Initial setup is already complete.");
+  }
+
+  const parsed = userSchema.safeParse({
+    name: stringValue(formData, "name"),
+    email: stringValue(formData, "email"),
+    title: optionalString(formData, "title"),
+    password: stringValue(formData, "password"),
+  });
+
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Could not create user.");
+  }
+
+  const user = await prisma.user.create({
+    data: {
+      name: parsed.data.name,
+      email: parsed.data.email.toLowerCase(),
+      title: parsed.data.title ?? null,
+      passwordHash: hashPassword(parsed.data.password),
+    },
+  });
+
+  await createSession(user.id);
+  redirect("/");
+}
+
+export async function loginAction(formData: FormData) {
+  const parsed = loginSchema.safeParse({
+    email: stringValue(formData, "email"),
+    password: stringValue(formData, "password"),
+  });
+
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Could not sign in.");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { email: parsed.data.email.toLowerCase() },
+  });
+
+  if (!user || !user.isActive || !verifyPassword(parsed.data.password, user.passwordHash)) {
+    throw new Error("Email or password is incorrect.");
+  }
+
+  await createSession(user.id);
+  redirect("/");
+}
+
+export async function logoutAction() {
+  await clearSession();
+  redirect("/login");
+}
+
+export async function createUserAction(formData: FormData) {
+  await requireUser();
+
+  const parsed = userSchema.safeParse({
+    name: stringValue(formData, "name"),
+    email: stringValue(formData, "email"),
+    title: optionalString(formData, "title"),
+    password: stringValue(formData, "password"),
+  });
+
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Could not create team member.");
+  }
+
+  await prisma.user.create({
+    data: {
+      name: parsed.data.name,
+      email: parsed.data.email.toLowerCase(),
+      title: parsed.data.title ?? null,
+      passwordHash: hashPassword(parsed.data.password),
+    },
+  });
+
+  revalidatePath("/team");
+  revalidatePath("/clients");
+}
+
+export async function updateUserAction(formData: FormData) {
+  await requireUser();
+
+  const id = stringValue(formData, "id");
+  const name = stringValue(formData, "name");
+  const email = stringValue(formData, "email").toLowerCase();
+  const title = optionalString(formData, "title");
+  const password = optionalString(formData, "password");
+  const isActive = stringValue(formData, "isActive") === "true";
+
+  if (!name) throw new Error("Name is required.");
+  if (!email) throw new Error("Email is required.");
+
+  await prisma.user.update({
+    where: { id },
+    data: {
+      name,
+      email,
+      title: title ?? null,
+      isActive,
+      ...(password ? { passwordHash: hashPassword(password) } : {}),
+    },
+  });
+
+  revalidatePath("/team");
+  revalidatePath("/tasks");
+  revalidatePath("/clients");
+}
+
+export async function toggleUserArchiveAction(formData: FormData) {
+  const currentUser = await requireUser();
+  const id = stringValue(formData, "id");
+  const isActive = stringValue(formData, "isActive") === "true";
+
+  if (currentUser.id === id && isActive) {
+    throw new Error("You cannot archive the account you are currently using.");
+  }
+
+  await prisma.user.update({
+    where: { id },
+    data: { isActive: !isActive },
+  });
+
+  revalidatePath("/team");
+  revalidatePath("/tasks");
+  revalidatePath("/clients");
+}
+
+export async function deleteUserAction(formData: FormData) {
+  const currentUser = await requireUser();
+  const id = stringValue(formData, "id");
+
+  if (currentUser.id === id) {
+    throw new Error("You cannot delete the account you are currently using.");
+  }
+
+  await prisma.user.delete({
+    where: { id },
+  });
+
+  revalidatePath("/team");
+  revalidatePath("/tasks");
+  revalidatePath("/clients");
+}
+
+export async function assignUserToClientAction(formData: FormData) {
+  await requireUser();
+
+  const clientId = stringValue(formData, "clientId");
+  const userId = stringValue(formData, "userId");
+  const roleLabel = optionalString(formData, "roleLabel");
+
+  await prisma.clientUserAccess.upsert({
+    where: {
+      clientId_userId: {
+        clientId,
+        userId,
+      },
+    },
+    update: {
+      roleLabel: roleLabel ?? null,
+    },
+    create: {
+      clientId,
+      userId,
+      roleLabel: roleLabel ?? null,
+    },
+  });
+
+  revalidatePath(`/clients/${clientId}`);
+  revalidatePath("/team");
+}
+
+export async function removeUserFromClientAction(formData: FormData) {
+  await requireUser();
+
+  const clientId = stringValue(formData, "clientId");
+  const userId = stringValue(formData, "userId");
+
+  await prisma.clientUserAccess.delete({
+    where: {
+      clientId_userId: {
+        clientId,
+        userId,
+      },
+    },
+  });
+
+  revalidatePath(`/clients/${clientId}`);
+  revalidatePath("/team");
 }
 
 export async function createClientAction(formData: FormData) {
@@ -143,6 +371,7 @@ export async function createManualTaskAction(formData: FormData) {
     description: optionalString(formData, "description"),
     category: optionalString(formData, "category"),
     assignee: optionalString(formData, "assignee"),
+    assigneeUserId: optionalString(formData, "assigneeUserId"),
     dueDate: optionalString(formData, "dueDate"),
     notes: optionalString(formData, "notes"),
     blockedReason: optionalString(formData, "blockedReason"),
@@ -161,6 +390,7 @@ export async function createManualTaskAction(formData: FormData) {
 
   const nextSortOrder =
     Math.max(0, ...period.taskInstances.map((task) => task.sortOrder)) + 10;
+  const assignment = await resolveUserChoice(parsed.data.assigneeUserId, parsed.data.assignee);
 
   const task = await prisma.taskInstance.create({
     data: {
@@ -168,13 +398,15 @@ export async function createManualTaskAction(formData: FormData) {
       title: parsed.data.title,
       description: parsed.data.description ?? null,
       category: parsed.data.category ?? null,
-      assignee: parsed.data.assignee ?? null,
+      assignee: assignment.label,
+      assigneeUserId: assignment.userId,
       dueDate: parsed.data.dueDate ? parseISO(parsed.data.dueDate) : null,
       notes: parsed.data.notes ?? null,
       blockedReason: parsed.data.blockedReason ?? null,
       sourceType: TaskSourceType.MANUAL,
       priority: parsed.data.priority,
       status: parsed.data.status,
+      lastOpenStatus: parsed.data.status === TaskStatus.COMPLETE ? TaskStatus.NOT_STARTED : parsed.data.status,
       completedAt: parsed.data.status === TaskStatus.COMPLETE ? new Date() : null,
       sortOrder: nextSortOrder,
       templateTaskSnapshot: JSON.stringify({
@@ -201,40 +433,66 @@ export async function bulkUpdateTasksAction(formData: FormData) {
   if (taskIds.length === 0) return;
 
   const assignee = optionalString(formData, "assignee");
+  const assigneeUserId = optionalString(formData, "assigneeUserId");
   const statusValue = optionalString(formData, "status") as TaskStatus | undefined;
   const dueDateValue = optionalString(formData, "dueDate");
 
   const updates: {
     assignee?: string | null;
+    assigneeUserId?: string | null;
     status?: TaskStatus;
     completedAt?: Date | null;
     dueDate?: Date | null;
   } = {};
 
-  if (assignee) {
-    updates.assignee = assignee;
-  }
-
-  if (statusValue) {
-    updates.status = statusValue;
-    updates.completedAt = statusValue === TaskStatus.COMPLETE ? new Date() : null;
+  if (assigneeUserId || assignee) {
+    const assignment = await resolveUserChoice(assigneeUserId, assignee);
+    updates.assignee = assignment.label;
+    updates.assigneeUserId = assignment.userId;
   }
 
   if (dueDateValue) {
     updates.dueDate = parseISO(dueDateValue);
   }
 
-  if (Object.keys(updates).length === 0) return;
+  if (!statusValue && Object.keys(updates).length === 0) return;
 
   const selectedTasks = await prisma.taskInstance.findMany({
     where: { id: { in: taskIds } },
-    select: { id: true, periodInstanceId: true },
+    select: { id: true, periodInstanceId: true, status: true, lastOpenStatus: true },
   });
 
-  await prisma.taskInstance.updateMany({
-    where: { id: { in: taskIds } },
-    data: updates,
-  });
+  if (statusValue) {
+    await prisma.$transaction(
+      selectedTasks.map((task) =>
+        prisma.taskInstance.update({
+          where: { id: task.id },
+          data:
+            statusValue === TaskStatus.COMPLETE
+              ? {
+                  ...updates,
+                  status: TaskStatus.COMPLETE,
+                  lastOpenStatus:
+                    task.status === TaskStatus.COMPLETE
+                      ? task.lastOpenStatus ?? TaskStatus.NOT_STARTED
+                      : task.status,
+                  completedAt: new Date(),
+                }
+              : {
+                  ...updates,
+                  status: statusValue,
+                  lastOpenStatus: statusValue,
+                  completedAt: null,
+                },
+        }),
+      ),
+    );
+  } else {
+    await prisma.taskInstance.updateMany({
+      where: { id: { in: taskIds } },
+      data: updates,
+    });
+  }
 
   revalidatePath("/tasks");
   revalidatePath("/periods");
@@ -349,6 +607,7 @@ export async function createTemplateTaskAction(formData: FormData) {
     description: optionalString(formData, "description"),
     category: optionalString(formData, "category"),
     defaultOwner: optionalString(formData, "defaultOwner"),
+    defaultOwnerUserId: optionalString(formData, "defaultOwnerUserId"),
     recurrenceType: stringValue(formData, "recurrenceType") as RecurrenceType,
     dueDateRuleType: stringValue(formData, "dueDateRuleType"),
     dueDayOfMonth: numberOrUndefined(optionalString(formData, "dueDayOfMonth")),
@@ -369,10 +628,14 @@ export async function createTemplateTaskAction(formData: FormData) {
     throw new Error(parsed.error.issues[0]?.message ?? "Could not create template task.");
   }
 
+  const defaultOwner = await resolveUserChoice(parsed.data.defaultOwnerUserId, parsed.data.defaultOwner);
+
   await prisma.templateTask.create({
     data: {
       templateId,
       ...parsed.data,
+      defaultOwner: defaultOwner.label,
+      defaultOwnerUserId: defaultOwner.userId,
       dependencyTemplateTaskId: parsed.data.dependencyTemplateTaskId || null,
     },
   });
@@ -390,6 +653,7 @@ export async function updateTemplateTaskAction(formData: FormData) {
     description: optionalString(formData, "description"),
     category: optionalString(formData, "category"),
     defaultOwner: optionalString(formData, "defaultOwner"),
+    defaultOwnerUserId: optionalString(formData, "defaultOwnerUserId"),
     recurrenceType: stringValue(formData, "recurrenceType") as RecurrenceType,
     dueDateRuleType: stringValue(formData, "dueDateRuleType"),
     dueDayOfMonth: numberOrUndefined(optionalString(formData, "dueDayOfMonth")),
@@ -410,10 +674,14 @@ export async function updateTemplateTaskAction(formData: FormData) {
     throw new Error(parsed.error.issues[0]?.message ?? "Could not update template task.");
   }
 
+  const defaultOwner = await resolveUserChoice(parsed.data.defaultOwnerUserId, parsed.data.defaultOwner);
+
   await prisma.templateTask.update({
     where: { id },
     data: {
       ...parsed.data,
+      defaultOwner: defaultOwner.label,
+      defaultOwnerUserId: defaultOwner.userId,
       dependencyTemplateTaskId:
         parsed.data.dependencyTemplateTaskId && parsed.data.dependencyTemplateTaskId !== id
           ? parsed.data.dependencyTemplateTaskId
@@ -595,10 +863,21 @@ export async function updateTaskStatusAction(formData: FormData) {
   const periodId = stringValue(formData, "periodId");
   const status = stringValue(formData, "status") as TaskStatus;
 
+  const task = await prisma.taskInstance.findUniqueOrThrow({
+    where: { id },
+    select: { status: true, lastOpenStatus: true },
+  });
+
   await prisma.taskInstance.update({
     where: { id },
     data: {
       status,
+      lastOpenStatus:
+        status === TaskStatus.COMPLETE
+          ? task.status === TaskStatus.COMPLETE
+            ? task.lastOpenStatus ?? TaskStatus.NOT_STARTED
+            : task.status
+          : status,
       completedAt: status === TaskStatus.COMPLETE ? new Date() : null,
     },
   });
@@ -609,14 +888,53 @@ export async function updateTaskStatusAction(formData: FormData) {
   revalidatePath("/");
 }
 
+export async function toggleTaskCompletionAction(formData: FormData) {
+  const id = stringValue(formData, "id");
+  const periodId = stringValue(formData, "periodId");
+
+  const task = await prisma.taskInstance.findUniqueOrThrow({
+    where: { id },
+    select: { status: true, lastOpenStatus: true },
+  });
+
+  const restoring = task.status === TaskStatus.COMPLETE;
+  const restoredStatus = task.lastOpenStatus ?? TaskStatus.NOT_STARTED;
+
+  await prisma.taskInstance.update({
+    where: { id },
+    data: restoring
+      ? {
+          status: restoredStatus,
+          lastOpenStatus: restoredStatus,
+          completedAt: null,
+        }
+      : {
+          status: TaskStatus.COMPLETE,
+          lastOpenStatus: task.status,
+          completedAt: new Date(),
+        },
+  });
+
+  revalidatePath(`/periods/${periodId}`);
+  revalidatePath("/periods");
+  revalidatePath("/tasks");
+  revalidatePath(`/tasks/${id}`);
+  revalidatePath("/");
+}
+
 export async function updateTaskDetailsAction(formData: FormData) {
   const id = stringValue(formData, "id");
   const periodId = stringValue(formData, "periodId");
+  const assignment = await resolveUserChoice(
+    optionalString(formData, "assigneeUserId"),
+    optionalString(formData, "assignee"),
+  );
 
   await prisma.taskInstance.update({
     where: { id },
     data: {
-      assignee: optionalString(formData, "assignee") ?? null,
+      assignee: assignment.label,
+      assigneeUserId: assignment.userId,
       dueDate: optionalString(formData, "dueDate")
         ? parseISO(stringValue(formData, "dueDate"))
         : null,
@@ -659,6 +977,7 @@ export async function deleteTaskAction(formData: FormData) {
 }
 
 export async function addTaskCommentAction(formData: FormData) {
+  const user = await requireUser();
   const taskInstanceId = stringValue(formData, "taskInstanceId");
   const periodId = stringValue(formData, "periodId");
   const body = stringValue(formData, "body");
@@ -666,7 +985,7 @@ export async function addTaskCommentAction(formData: FormData) {
   if (!body) return;
 
   await prisma.taskNote.create({
-    data: { taskInstanceId, body },
+    data: { taskInstanceId, body, authorUserId: user.id },
   });
 
   revalidatePath(`/periods/${periodId}`);
@@ -872,6 +1191,7 @@ export async function commitImportBatchAction(formData: FormData) {
       });
 
       for (const [index, row] of validRows.entries()) {
+        const owner = await findUserByOwnerLabel(row.normalized.owner);
         await tx.templateTask.create({
           data: {
             templateId: template.id,
@@ -879,6 +1199,7 @@ export async function commitImportBatchAction(formData: FormData) {
             description: row.normalized.description,
             category: row.normalized.category,
             defaultOwner: row.normalized.owner,
+            defaultOwnerUserId: owner?.id ?? null,
             recurrenceType: normalizeRecurrence(row.normalized.recurrence),
             dueDateRuleType: row.normalized.dueDay ? "DAY_OF_MONTH" : "NONE",
             dueDayOfMonth: row.normalized.dueDay ? Number(row.normalized.dueDay) : null,
@@ -909,6 +1230,7 @@ export async function commitImportBatchAction(formData: FormData) {
       }
 
       for (const [index, row] of validRows.entries()) {
+        const owner = await findUserByOwnerLabel(row.normalized.owner);
         await tx.taskInstance.create({
           data: {
             periodInstanceId,
@@ -916,6 +1238,7 @@ export async function commitImportBatchAction(formData: FormData) {
             description: row.normalized.description,
             category: row.normalized.category,
             assignee: row.normalized.owner,
+            assigneeUserId: owner?.id ?? null,
             dueDate: row.normalized.dueDate ? new Date(row.normalized.dueDate) : null,
             notes: row.normalized.notes,
             sourceType: TaskSourceType.IMPORTED,

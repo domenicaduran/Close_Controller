@@ -99,11 +99,54 @@ model Client {
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
   templateAssignments  ClientTemplateAssignment[]
+  teamMemberships      ClientUserAccess[]
   periodInstances      PeriodInstance[]
   importBatches        ImportBatch[]
   pbcRequestItems      PBCRequestItem[]
 
   @@index([isArchived, name])
+}
+
+model User {
+  id                        String                @id @default(cuid())
+  name                      String
+  email                     String                @unique
+  passwordHash              String
+  title                     String?
+  isActive                  Boolean               @default(true)
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
+  clientAccess              ClientUserAccess[]
+  assignedTasks             TaskInstance[]        @relation("TaskAssignee")
+  defaultOwnedTemplateTasks TemplateTask[]        @relation("TemplateTaskDefaultOwner")
+  taskNotes                 TaskNote[]            @relation("TaskNoteAuthor")
+  sessions                  UserSession[]
+
+  @@index([isActive, name])
+}
+
+model UserSession {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model ClientUserAccess {
+  id         String   @id @default(cuid())
+  clientId   String
+  userId     String
+  roleLabel  String?
+  createdAt  DateTime @default(now())
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, userId])
+  @@index([userId])
 }
 
 model WorkflowTemplate {
@@ -143,6 +186,7 @@ model TemplateTask {
   description              String?
   category                 String?
   defaultOwner             String?
+  defaultOwnerUserId       String?
   recurrenceType           RecurrenceType
   dueDateRuleType          DueDateRuleType      @default(NONE)
   dueDayOfMonth            Int?
@@ -161,11 +205,13 @@ model TemplateTask {
   createdAt                DateTime             @default(now())
   updatedAt                DateTime             @updatedAt
   template                 WorkflowTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  defaultOwnerUser         User?                @relation("TemplateTaskDefaultOwner", fields: [defaultOwnerUserId], references: [id], onDelete: SetNull)
   dependencyTemplateTask   TemplateTask?        @relation("TemplateTaskDependency", fields: [dependencyTemplateTaskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   dependentTasks           TemplateTask[]       @relation("TemplateTaskDependency")
   taskInstances            TaskInstance[]
 
   @@index([templateId, sortOrder])
+  @@index([defaultOwnerUserId])
 }
 
 model PeriodInstance {
@@ -203,8 +249,10 @@ model TaskInstance {
   description           String?
   category              String?
   assignee              String?
+  assigneeUserId        String?
   dueDate               DateTime?
   status                TaskStatus     @default(NOT_STARTED)
+  lastOpenStatus        TaskStatus?
   completedAt           DateTime?
   notes                 String?
   reviewerSignoff       String?
@@ -222,6 +270,7 @@ model TaskInstance {
   updatedAt             DateTime       @updatedAt
   periodInstance        PeriodInstance @relation(fields: [periodInstanceId], references: [id], onDelete: Cascade)
   templateTask          TemplateTask?  @relation(fields: [templateTaskId], references: [id], onDelete: SetNull)
+  assigneeUser          User?          @relation("TaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
   carryforwardFromTask  TaskInstance?  @relation("TaskCarryforward", fields: [carryforwardFromTaskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   carryforwardChildren  TaskInstance[] @relation("TaskCarryforward")
   dependencyTask        TaskInstance?  @relation("TaskDependency", fields: [dependencyTaskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -232,17 +281,21 @@ model TaskInstance {
   @@index([periodInstanceId, status])
   @@index([dueDate])
   @@index([sourceType])
+  @@index([assigneeUserId])
 }
 
 model TaskNote {
   id             String       @id @default(cuid())
   taskInstanceId String
+  authorUserId   String?
   body           String
   copiedForward  Boolean      @default(false)
   createdAt      DateTime     @default(now())
   taskInstance   TaskInstance @relation(fields: [taskInstanceId], references: [id], onDelete: Cascade)
+  authorUser     User?        @relation("TaskNoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
 
   @@index([taskInstanceId, createdAt])
+  @@index([authorUserId])
 }
 
 model EvidenceLink {

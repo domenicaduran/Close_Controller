@@ -16,6 +16,7 @@ import {
   Panel,
   Select,
   StatusBadge,
+  buttonStyles,
 } from "@/components/ui";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { buildPeriodLabel, inferNextPeriod } from "@/lib/workflow";
@@ -168,7 +169,7 @@ export default async function PeriodDetailPage({
 
             <Link
               href={`/tasks?new=1&clientId=${period.clientId}&periodId=${period.id}`}
-              className="inline-flex items-center justify-center rounded-xl border border-[#2563EB] bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-[#1D4ED8] hover:bg-[#1D4ED8]"
+              className={buttonStyles("primary")}
             >
               New Manual Task for This Period
             </Link>
