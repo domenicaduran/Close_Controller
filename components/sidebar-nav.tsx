@@ -1,24 +1,27 @@
 "use client";
 
+import { UserRole } from "@prisma/client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navigation = [
   { href: "/", label: "Dashboard" },
   { href: "/clients", label: "Clients" },
-  { href: "/team", label: "Team" },
   { href: "/tasks", label: "Tasks" },
-  { href: "/templates", label: "Templates" },
+  { href: "/team", label: "Team", roles: [UserRole.ADMIN] },
+  { href: "/templates", label: "Templates", roles: [UserRole.ADMIN, UserRole.MANAGER] },
   { href: "/periods", label: "Periods" },
-  { href: "/imports", label: "Imports" },
-];
+  { href: "/imports", label: "Imports", roles: [UserRole.ADMIN, UserRole.MANAGER] },
+  { href: "/audit-log", label: "Audit Log", roles: [UserRole.ADMIN] },
+] satisfies Array<{ href: string; label: string; roles?: UserRole[] }>;
 
-export function SidebarNav() {
+export function SidebarNav({ role }: { role: UserRole }) {
   const pathname = usePathname();
+  const visibleNavigation = navigation.filter((item) => !item.roles || item.roles.some((allowedRole) => allowedRole === role));
 
   return (
-    <nav className="mt-8 space-y-1.5">
-      {navigation.map((item) => {
+    <nav className="space-y-1.5">
+      {visibleNavigation.map((item) => {
         const isActive =
           item.href === "/" ? pathname === item.href : pathname.startsWith(item.href);
 

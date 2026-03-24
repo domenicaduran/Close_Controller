@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
+import { UserRole, type User } from "@prisma/client";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -101,6 +102,99 @@ export async function getCurrentUser() {
 export async function requireUser() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  return user;
+}
+
+export function isAdmin(user: Pick<User, "role">) {
+  return user.role === UserRole.ADMIN;
+}
+
+export function isManager(user: Pick<User, "role">) {
+  return user.role === UserRole.MANAGER;
+}
+
+export function isManagerOrAdmin(user: Pick<User, "role">) {
+  return isAdmin(user) || isManager(user);
+}
+
+export async function requireAdmin() {
+  const user = await requireUser();
+  if (!isAdmin(user)) {
+    redirect("/");
+  }
+
+  return user;
+}
+
+export async function requireManagerOrAdmin() {
+  const user = await requireUser();
+  if (!isManagerOrAdmin(user)) {
+    redirect("/");
+  }
+
+  return user;
+}
+
+export async function accessibleClientIdsForUser(user: Pick<User, "id" | "role">) {
+  if (isAdmin(user)) {
+    const clients = await prisma.client.findMany({
+      select: { id: true },
+    });
+
+    return clients.map((client) => client.id);
+  }
+
+  const memberships = await prisma.clientUserAccess.findMany({
+    where: { userId: user.id },
+    select: { clientId: true },
+  });
+
+  return memberships.map((membership) => membership.clientId);
+}
+
+export async function requireClientAccess(clientId: string) {
+  const user = await requireUser();
+
+  if (isAdmin(user)) {
+    return user;
+  }
+
+  const membership = await prisma.clientUserAccess.findUnique({
+    where: {
+      clientId_userId: {
+        clientId,
+        userId: user.id,
+      },
+    },
+  });
+
+  if (!membership) {
+    redirect("/");
+  }
+
+  return user;
+}
+
+export async function requireClientManagementAccess(clientId: string) {
+  const user = await requireManagerOrAdmin();
+
+  if (isAdmin(user)) {
+    return user;
+  }
+
+  const membership = await prisma.clientUserAccess.findUnique({
+    where: {
+      clientId_userId: {
+        clientId,
+        userId: user.id,
+      },
+    },
+  });
+
+  if (!membership) {
+    redirect("/");
+  }
+
   return user;
 }
 

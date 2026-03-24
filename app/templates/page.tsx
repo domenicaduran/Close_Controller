@@ -2,11 +2,24 @@ import Link from "next/link";
 
 import { createTemplateAction } from "@/app/actions";
 import { Button, Field, Input, PageHeader, Panel, Select, TextArea } from "@/components/ui";
+import { isAdmin, isManagerOrAdmin, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 export default async function TemplatesPage() {
+  const currentUser = await requireUser();
+  if (!isManagerOrAdmin(currentUser)) {
+    return (
+      <div className="space-y-6 py-2">
+        <PageHeader
+          title="Templates"
+          description="Template management is available to managers and admins."
+        />
+      </div>
+    );
+  }
+
   const templates = await prisma.workflowTemplate.findMany({
     include: {
       tasks: true,
@@ -23,6 +36,7 @@ export default async function TemplatesPage() {
       />
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.35fr]">
+        {isAdmin(currentUser) ? (
         <Panel title="Create Template" subtitle="Start with a workflow type and then add checklist tasks.">
           <form action={createTemplateAction} className="grid gap-4">
             <Field label="Template name">
@@ -55,6 +69,13 @@ export default async function TemplatesPage() {
             <Button type="submit">Create Template</Button>
           </form>
         </Panel>
+        ) : (
+        <Panel title="Template Access" subtitle="You can review reusable workflows, but only administrators can create or delete them.">
+          <p className="text-sm leading-6 text-[#6B7280]">
+            Managers can use templates operationally while admins retain control over template library changes.
+          </p>
+        </Panel>
+        )}
 
         <Panel title="Template Library" subtitle="Reusable process definitions for controller operations.">
           <div className="grid gap-4">

@@ -2,9 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
+  deletePeriodAction,
   deleteTaskAction,
   rollforwardPeriodAction,
   setPeriodStatusAction,
+  togglePeriodArchiveAction,
   updateTaskStatusAction,
 } from "@/app/actions";
 import { ClientActionButton } from "@/components/client-action-button";
@@ -19,6 +21,7 @@ import {
   buttonStyles,
 } from "@/components/ui";
 import { formatDate, formatDateTime } from "@/lib/format";
+import { accessibleClientIdsForUser, isManagerOrAdmin, requireUser } from "@/lib/auth";
 import { buildPeriodLabel, inferNextPeriod } from "@/lib/workflow";
 import { prisma } from "@/lib/prisma";
 
@@ -28,6 +31,8 @@ export default async function PeriodDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const currentUser = await requireUser();
+  const accessibleClientIds = await accessibleClientIdsForUser(currentUser);
 
   const period = await prisma.periodInstance.findUnique({
     where: { id },
@@ -50,6 +55,7 @@ export default async function PeriodDetailPage({
   });
 
   if (!period) notFound();
+  if (!accessibleClientIds.includes(period.clientId) && currentUser.role !== "ADMIN") notFound();
 
   const completion = period.taskInstances.length
     ? Math.round(
@@ -103,62 +109,89 @@ export default async function PeriodDetailPage({
               <p className="mt-1 text-3xl font-semibold text-slate-950">{completion}%</p>
             </div>
 
-            <form action={setPeriodStatusAction} className="grid gap-3">
-              <input type="hidden" name="id" value={period.id} />
-              <Field label="Update period status">
-                <Select name="status" defaultValue={period.status}>
-                  <option value="OPEN">Open</option>
-                  <option value="IN_PROGRESS">In Progress</option>
-                  <option value="COMPLETE">Complete</option>
-                  <option value="ARCHIVED">Archived</option>
-                </Select>
-              </Field>
-              <Button type="submit">Save Status</Button>
-            </form>
+            {isManagerOrAdmin(currentUser) ? (
+              <>
+                <form action={setPeriodStatusAction} className="grid gap-3">
+                  <input type="hidden" name="id" value={period.id} />
+                  <Field label="Update period status">
+                    <Select name="status" defaultValue={period.status}>
+                      <option value="OPEN">Open</option>
+                      <option value="IN_PROGRESS">In Progress</option>
+                      <option value="COMPLETE">Complete</option>
+                      <option value="ARCHIVED">Archived</option>
+                    </Select>
+                  </Field>
+                  <Button type="submit">Save Status</Button>
+                </form>
 
-            <form action={rollforwardPeriodAction} className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <input type="hidden" name="periodId" value={period.id} />
-              <Field label="Target period label">
-                <Input name="label" defaultValue={suggestedLabel} required />
-              </Field>
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Target start date">
-                  <Input
-                    name="periodStart"
-                    type="date"
-                    defaultValue={suggestedNextPeriod.periodStart.toISOString().slice(0, 10)}
-                    required
-                  />
-                </Field>
-                <Field label="Target end date">
-                  <Input
-                    name="periodEnd"
-                    type="date"
-                    defaultValue={suggestedNextPeriod.periodEnd.toISOString().slice(0, 10)}
-                    required
-                  />
-                </Field>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <form action={togglePeriodArchiveAction}>
+                    <input type="hidden" name="id" value={period.id} />
+                    <input type="hidden" name="currentStatus" value={period.status} />
+                    <ClientActionButton
+                      actionLabel={period.status === "ARCHIVED" ? "Restore Period" : "Archive Period"}
+                      variant={period.status === "ARCHIVED" ? "neutral" : "warning"}
+                    />
+                  </form>
+                  <form action={deletePeriodAction}>
+                    <input type="hidden" name="id" value={period.id} />
+                    <ClientActionButton
+                      actionLabel="Delete Period"
+                      variant="danger"
+                      confirmMessage="Deleting this period will also delete its tasks, notes, evidence links, and PBC items. Later rolled-forward periods will remain, but their link back to this period will be removed. Continue?"
+                    />
+                  </form>
+                </div>
+
+                <form action={rollforwardPeriodAction} className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <input type="hidden" name="periodId" value={period.id} />
+                  <Field label="Target period label">
+                    <Input name="label" defaultValue={suggestedLabel} required />
+                  </Field>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="Target start date">
+                      <Input
+                        name="periodStart"
+                        type="date"
+                        defaultValue={suggestedNextPeriod.periodStart.toISOString().slice(0, 10)}
+                        required
+                      />
+                    </Field>
+                    <Field label="Target end date">
+                      <Input
+                        name="periodEnd"
+                        type="date"
+                        defaultValue={suggestedNextPeriod.periodEnd.toISOString().slice(0, 10)}
+                        required
+                      />
+                    </Field>
+                  </div>
+                  <div className="grid gap-3 rounded-2xl bg-white p-4 text-sm text-slate-700">
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" name="includeIncompleteTasks" defaultChecked />
+                      Include incomplete tasks
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" name="copyNotesFlaggedAsCarryforward" defaultChecked />
+                      Copy notes flagged as carryforward
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" name="includeBlockedItems" defaultChecked />
+                      Include blocked items
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" name="excludeCompletedOneTimeTasks" defaultChecked />
+                      Exclude completed one-time tasks
+                    </label>
+                  </div>
+                  <Button type="submit">Roll Forward</Button>
+                </form>
+              </>
+            ) : (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                Period lifecycle actions like status changes, archive, delete, and rollforward are limited to managers and admins.
               </div>
-              <div className="grid gap-3 rounded-2xl bg-white p-4 text-sm text-slate-700">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" name="includeIncompleteTasks" defaultChecked />
-                  Include incomplete tasks
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" name="copyNotesFlaggedAsCarryforward" defaultChecked />
-                  Copy notes flagged as carryforward
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" name="includeBlockedItems" defaultChecked />
-                  Include blocked items
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" name="excludeCompletedOneTimeTasks" defaultChecked />
-                  Exclude completed one-time tasks
-                </label>
-              </div>
-              <Button type="submit">Roll Forward</Button>
-            </form>
+            )}
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
               <p>Start: {formatDate(period.periodStart)}</p>
@@ -167,12 +200,14 @@ export default async function PeriodDetailPage({
               {period.sourcePeriod ? <p className="mt-1">Rolled from: {period.sourcePeriod.label}</p> : null}
             </div>
 
-            <Link
-              href={`/tasks?new=1&clientId=${period.clientId}&periodId=${period.id}`}
-              className={buttonStyles("primary")}
-            >
-              New Manual Task for This Period
-            </Link>
+            {isManagerOrAdmin(currentUser) ? (
+              <Link
+                href={`/tasks?new=1&clientId=${period.clientId}&periodId=${period.id}`}
+                className={buttonStyles("primary")}
+              >
+                New Manual Task for This Period
+              </Link>
+            ) : null}
           </div>
         </Panel>
 
@@ -231,15 +266,17 @@ export default async function PeriodDetailPage({
                       </Select>
                       <Button type="submit">Update</Button>
                     </form>
-                    <form action={deleteTaskAction}>
-                      <input type="hidden" name="id" value={task.id} />
-                      <input type="hidden" name="periodId" value={period.id} />
-                      <ClientActionButton
-                        actionLabel="Delete Task"
-                        variant="danger"
-                        confirmMessage="Delete this task? This will also remove related notes and evidence links. Carryforward and dependency references will be cleared."
-                      />
-                    </form>
+                    {isManagerOrAdmin(currentUser) ? (
+                      <form action={deleteTaskAction}>
+                        <input type="hidden" name="id" value={task.id} />
+                        <input type="hidden" name="periodId" value={period.id} />
+                        <ClientActionButton
+                          actionLabel="Delete Task"
+                          variant="danger"
+                          confirmMessage="Delete this task? This will also remove related notes and evidence links. Carryforward and dependency references will be cleared."
+                        />
+                      </form>
+                    ) : null}
                   </div>
                 </div>
               </div>

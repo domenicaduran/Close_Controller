@@ -1,6 +1,12 @@
 import { notFound } from "next/navigation";
 
 import { commitImportBatchAction, saveImportMappingAction } from "@/app/actions";
+import {
+  accessibleClientIdsForUser,
+  isAdmin,
+  isManagerOrAdmin,
+  requireUser,
+} from "@/lib/auth";
 import { getImportFields } from "@/lib/import-config";
 import { prisma } from "@/lib/prisma";
 import { Button, Field, Input, PageHeader, Panel, Select, StatusBadge } from "@/components/ui";
@@ -29,6 +35,9 @@ export default async function ImportDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const currentUser = await requireUser();
+  if (!isManagerOrAdmin(currentUser)) notFound();
+  const accessibleClientIds = await accessibleClientIdsForUser(currentUser);
 
   const [batch, clients, periods] = await Promise.all([
     prisma.importBatch.findUnique({
@@ -36,16 +45,21 @@ export default async function ImportDetailPage({
       include: { rows: { orderBy: { rowNumber: "asc" } } },
     }),
     prisma.client.findMany({
-      where: { isArchived: false },
+      where: {
+        isArchived: false,
+        ...(isAdmin(currentUser) ? {} : { id: { in: accessibleClientIds } }),
+      },
       orderBy: { name: "asc" },
     }),
     prisma.periodInstance.findMany({
+      where: isAdmin(currentUser) ? undefined : { clientId: { in: accessibleClientIds } },
       include: { client: true },
       orderBy: { periodStart: "desc" },
     }),
   ]);
 
   if (!batch) notFound();
+  if (!isAdmin(currentUser) && batch.clientId && !accessibleClientIds.includes(batch.clientId)) notFound();
 
   const filteredPresets = await prisma.importMappingPreset.findMany({
     where: {

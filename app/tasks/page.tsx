@@ -23,7 +23,12 @@ import {
 } from "@/components/ui";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth";
+import {
+  accessibleClientIdsForUser,
+  isAdmin,
+  isManagerOrAdmin,
+  requireUser,
+} from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +90,8 @@ export default async function TasksPage({
 }) {
   const params = await searchParams;
   const currentUser = await requireUser();
+  const accessibleClientIds = await accessibleClientIdsForUser(currentUser);
+  const canManageTasks = isManagerOrAdmin(currentUser);
   const selectedView =
     params.view === "status" || params.view === "client" ? params.view : "flat";
   const showNewTaskForm = params.new === "1";
@@ -96,6 +103,7 @@ export default async function TasksPage({
         periodInstance: {
           client: {
             isArchived: false,
+            ...(isAdmin(currentUser) ? {} : { id: { in: accessibleClientIds } }),
           },
         },
       },
@@ -117,7 +125,10 @@ export default async function TasksPage({
     prisma.periodInstance.findMany({
       where: {
         status: { not: "ARCHIVED" },
-        client: { isArchived: false },
+        client: {
+          isArchived: false,
+          ...(isAdmin(currentUser) ? {} : { id: { in: accessibleClientIds } }),
+        },
       },
       include: {
         client: true,
@@ -126,7 +137,16 @@ export default async function TasksPage({
       orderBy: [{ client: { name: "asc" } }, { periodStart: "desc" }],
     }),
     prisma.user.findMany({
-      where: { isActive: true },
+      where: isAdmin(currentUser)
+        ? { isActive: true }
+        : {
+            isActive: true,
+            clientAccess: {
+              some: {
+                clientId: { in: accessibleClientIds },
+              },
+            },
+          },
       orderBy: { name: "asc" },
     }),
   ]);
@@ -180,23 +200,25 @@ export default async function TasksPage({
         description="Use Tasks as the daily operating surface: filter, bulk update, and manage individual tasks in their own workspace."
         action={
           <div className="flex gap-2">
-            <Link
-              href={`/tasks?${buildQueryString({
-                view: selectedView,
-                saved: activeSavedView,
-                due: params.due,
-                assignee: params.assignee,
-                assigneeUserId: params.assigneeUserId,
-                clientId: params.clientId,
-                sourceType: params.sourceType,
-                priority: params.priority,
-                periodId: params.periodId,
-                new: "1",
-              })}`}
-              className={buttonStyles("primary", "px-3.5 py-2")}
-            >
-              New Task
-            </Link>
+            {canManageTasks ? (
+              <Link
+                href={`/tasks?${buildQueryString({
+                  view: selectedView,
+                  saved: activeSavedView,
+                  due: params.due,
+                  assignee: params.assignee,
+                  assigneeUserId: params.assigneeUserId,
+                  clientId: params.clientId,
+                  sourceType: params.sourceType,
+                  priority: params.priority,
+                  periodId: params.periodId,
+                  new: "1",
+                })}`}
+                className={buttonStyles("primary", "px-3.5 py-2")}
+              >
+                New Task
+              </Link>
+            ) : null}
             <Link
               href={`/tasks?${buildQueryString({ ...params, view: "flat", new: undefined })}`}
               className={
@@ -231,7 +253,7 @@ export default async function TasksPage({
         }
       />
 
-      {showNewTaskForm ? (
+      {showNewTaskForm && canManageTasks ? (
         <Panel title="New Task" subtitle="Create a one-off manual task and default it from the current client or period context when available.">
           <form action={createManualTaskAction} className="grid gap-4 md:grid-cols-2">
             <Field label="Client period">
@@ -318,13 +340,13 @@ export default async function TasksPage({
             assignees={assignees}
             clients={clients}
           />
-          <TaskTable tasks={openFilteredTasks} formId="bulk-flat" showClient users={users} emptyLabel="No open tasks match the current filters." />
+          <TaskTable tasks={openFilteredTasks} formId="bulk-flat" showClient users={users} canManageTasks={canManageTasks} emptyLabel="No open tasks match the current filters." />
           <details className="rounded-xl border border-[#E5E7EB] bg-[#FCFCFD]">
             <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-[#1F2937]">
               Done ({completedFilteredTasks.length})
             </summary>
             <div className="border-t border-[#E5E7EB] px-4 py-4">
-              <TaskTable tasks={completedFilteredTasks} formId="bulk-complete" showClient users={users} hideBulkActions emptyLabel="No completed tasks in the current result set." />
+              <TaskTable tasks={completedFilteredTasks} formId="bulk-complete" showClient users={users} canManageTasks={canManageTasks} hideBulkActions emptyLabel="No completed tasks in the current result set." />
             </div>
           </details>
         </Panel>
@@ -349,23 +371,25 @@ export default async function TasksPage({
               <div className="mb-3 flex items-center justify-between gap-3 border-b border-[#E5E7EB] pb-2">
                 <div className="text-xs text-[#6B7280]">Client workspace view</div>
                 <div className="flex gap-3">
-                  <Link
-                    href={`/tasks?${buildQueryString({
-                      view: selectedView,
-                      clientId: group.clientId,
-                      periodId: group.tasks[0]?.periodInstance.id,
-                      new: "1",
-                    })}`}
-                    className="text-xs font-semibold text-[#2563EB]"
-                  >
-                    New Task for Client
-                  </Link>
+                  {canManageTasks ? (
+                    <Link
+                      href={`/tasks?${buildQueryString({
+                        view: selectedView,
+                        clientId: group.clientId,
+                        periodId: group.tasks[0]?.periodInstance.id,
+                        new: "1",
+                      })}`}
+                      className="text-xs font-semibold text-[#2563EB]"
+                    >
+                      New Task for Client
+                    </Link>
+                  ) : null}
                   <Link href={`/clients/${group.clientId}`} className="text-xs font-semibold text-[#2563EB]">
                     Open Client
                   </Link>
                 </div>
               </div>
-              <TaskTable tasks={group.tasks} formId={`bulk-client-${group.clientId}`} users={users} showClient={false} emptyLabel="No open tasks for this client." />
+              <TaskTable tasks={group.tasks} formId={`bulk-client-${group.clientId}`} users={users} canManageTasks={canManageTasks} showClient={false} emptyLabel="No open tasks for this client." />
             </Panel>
           ))}
           {groupTasksByClient(openFilteredTasks).length === 0 ? (
@@ -392,7 +416,7 @@ export default async function TasksPage({
                           </p>
                         </div>
                       </div>
-                      <TaskTable tasks={group.tasks} formId={`bulk-client-complete-${group.clientId}`} users={users} hideBulkActions emptyLabel="No completed tasks for this client." />
+                      <TaskTable tasks={group.tasks} formId={`bulk-client-complete-${group.clientId}`} users={users} canManageTasks={canManageTasks} hideBulkActions emptyLabel="No completed tasks for this client." />
                     </div>
                   ))}
                 </div>
@@ -436,7 +460,7 @@ export default async function TasksPage({
                                 </p>
                               </div>
                             </div>
-                            <TaskTable tasks={group.tasks} formId={`bulk-${section.key}-${group.clientId}`} users={users} hideBulkActions emptyLabel="No completed tasks." />
+                            <TaskTable tasks={group.tasks} formId={`bulk-${section.key}-${group.clientId}`} users={users} canManageTasks={canManageTasks} hideBulkActions emptyLabel="No completed tasks." />
                           </div>
                         ))}
                       </div>
@@ -467,23 +491,25 @@ export default async function TasksPage({
                             </p>
                           </div>
                           <div className="flex gap-3">
-                            <Link
-                              href={`/tasks?${buildQueryString({
-                                view: selectedView,
-                                clientId: group.clientId,
-                                periodId: group.tasks[0]?.periodInstance.id,
-                                new: "1",
-                              })}`}
-                              className="text-xs font-semibold text-[#2563EB]"
-                            >
-                              New Task for Client
-                            </Link>
+                            {canManageTasks ? (
+                              <Link
+                                href={`/tasks?${buildQueryString({
+                                  view: selectedView,
+                                  clientId: group.clientId,
+                                  periodId: group.tasks[0]?.periodInstance.id,
+                                  new: "1",
+                                })}`}
+                                className="text-xs font-semibold text-[#2563EB]"
+                              >
+                                New Task for Client
+                              </Link>
+                            ) : null}
                             <Link href={`/clients/${group.clientId}`} className="text-xs font-semibold text-[#2563EB]">
                               Open Client
                             </Link>
                           </div>
                         </div>
-                        <TaskTable tasks={group.tasks} formId={`bulk-${section.key}-${group.clientId}`} users={users} emptyLabel={`No ${section.label.toLowerCase()} tasks.`} />
+                        <TaskTable tasks={group.tasks} formId={`bulk-${section.key}-${group.clientId}`} users={users} canManageTasks={canManageTasks} emptyLabel={`No ${section.label.toLowerCase()} tasks.`} />
                       </div>
                     ))}
                   </div>
@@ -501,6 +527,7 @@ function TaskTable({
   tasks,
   formId,
   users,
+  canManageTasks,
   showClient = false,
   hideBulkActions = false,
   emptyLabel = "No tasks match the current filters.",
@@ -508,13 +535,14 @@ function TaskTable({
   tasks: TaskRow[];
   formId: string;
   users: Array<{ id: string; name: string }>;
+  canManageTasks: boolean;
   showClient?: boolean;
   hideBulkActions?: boolean;
   emptyLabel?: string;
 }) {
   return (
     <div className="space-y-4">
-      {hideBulkActions ? null : (
+      {hideBulkActions || !canManageTasks ? null : (
         <form id={formId} action={bulkUpdateTasksAction} className="grid gap-3 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] p-3 md:grid-cols-[1.2fr_1fr_1fr_auto]">
           <Field label="Bulk assignee">
             <Select name="assigneeUserId" defaultValue="">
@@ -664,15 +692,17 @@ function TaskTable({
                   </span>
                 </td>
                 <td className="px-3 py-2.5 text-right">
-                  <form action={deleteTaskAction} className="inline-flex">
-                    <input type="hidden" name="id" value={task.id} />
-                    <input type="hidden" name="periodId" value={task.periodInstance.id} />
-                    <ClientActionButton
-                      actionLabel="Delete"
-                      variant="danger"
-                      confirmMessage="Delete this task? This will also remove related notes and evidence links. Carryforward and dependency references will be cleared."
-                    />
-                  </form>
+                  {canManageTasks ? (
+                    <form action={deleteTaskAction} className="inline-flex">
+                      <input type="hidden" name="id" value={task.id} />
+                      <input type="hidden" name="periodId" value={task.periodInstance.id} />
+                      <ClientActionButton
+                        actionLabel="Delete"
+                        variant="danger"
+                        confirmMessage="Delete this task? This will also remove related notes and evidence links. Carryforward and dependency references will be cleared."
+                      />
+                    </form>
+                  ) : null}
                 </td>
               </tr>
             ))}

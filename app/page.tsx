@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { MetricCard, PageHeader, Panel, StatusBadge } from "@/components/ui";
-import { requireUser } from "@/lib/auth";
+import { accessibleClientIdsForUser, isAdmin, requireUser } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
@@ -10,6 +10,8 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const today = new Date();
   const currentUser = await requireUser();
+  const accessibleClientIds = await accessibleClientIdsForUser(currentUser);
+  const clientScope = isAdmin(currentUser) ? undefined : { in: accessibleClientIds };
 
   const [
     myOpenTasks,
@@ -25,12 +27,14 @@ export default async function HomePage() {
       where: {
         assigneeUserId: currentUser.id,
         status: { not: "COMPLETE" },
+        periodInstance: clientScope ? { clientId: clientScope } : undefined,
       },
     }),
     prisma.taskInstance.findMany({
       where: {
         dueDate: { lt: today },
         status: { not: "COMPLETE" },
+        periodInstance: clientScope ? { clientId: clientScope } : undefined,
       },
       include: {
         periodInstance: { include: { client: true } },
@@ -45,6 +49,7 @@ export default async function HomePage() {
           lt: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1),
         },
         status: { not: "COMPLETE" },
+        periodInstance: clientScope ? { clientId: clientScope } : undefined,
       },
       include: {
         periodInstance: { include: { client: true } },
@@ -53,13 +58,16 @@ export default async function HomePage() {
       take: 8,
     }),
     prisma.taskInstance.findMany({
-      where: { status: "BLOCKED" },
+      where: {
+        status: "BLOCKED",
+        ...(clientScope ? { periodInstance: { clientId: clientScope } } : {}),
+      },
       include: { periodInstance: { include: { client: true } } },
       orderBy: { updatedAt: "desc" },
       take: 8,
     }),
     prisma.client.findMany({
-      where: { isArchived: false },
+      where: { isArchived: false, ...(clientScope ? { id: clientScope } : {}) },
       include: {
         periodInstances: {
           where: { status: { not: "ARCHIVED" } },
@@ -70,6 +78,7 @@ export default async function HomePage() {
       orderBy: { name: "asc" },
     }),
     prisma.periodInstance.findMany({
+      where: clientScope ? { clientId: clientScope } : undefined,
       include: {
         client: true,
         template: true,
@@ -79,6 +88,7 @@ export default async function HomePage() {
       take: 10,
     }),
     prisma.pBCRequestItem.groupBy({
+      where: clientScope ? { clientId: clientScope } : undefined,
       by: ["status"],
       _count: { status: true },
     }),

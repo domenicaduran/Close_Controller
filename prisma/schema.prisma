@@ -45,6 +45,12 @@ enum PeriodStatus {
   ARCHIVED
 }
 
+enum UserRole {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
 enum TaskStatus {
   NOT_STARTED
   IN_PROGRESS
@@ -88,6 +94,33 @@ enum PBCRequestStatus {
   CLEARED
 }
 
+enum AuditActionType {
+  CREATED
+  UPDATED
+  DELETED
+  ARCHIVED
+  RESTORED
+  STATUS_CHANGED
+  ROLLED_FORWARD
+  IMPORTED
+  ASSIGNED
+  UNASSIGNED
+  SIGNED_IN
+}
+
+enum AuditEntityType {
+  CLIENT
+  PERIOD
+  TASK
+  TEMPLATE
+  TEMPLATE_TASK
+  IMPORT_BATCH
+  PBC_ITEM
+  USER
+  TEAM_MEMBERSHIP
+  SESSION
+}
+
 model Client {
   id                   String                     @id @default(cuid())
   name                 String
@@ -103,6 +136,7 @@ model Client {
   periodInstances      PeriodInstance[]
   importBatches        ImportBatch[]
   pbcRequestItems      PBCRequestItem[]
+  auditLogs            AuditLog[]
 
   @@index([isArchived, name])
 }
@@ -113,6 +147,7 @@ model User {
   email                     String                @unique
   passwordHash              String
   title                     String?
+  role                      UserRole              @default(STAFF)
   isActive                  Boolean               @default(true)
   createdAt                 DateTime              @default(now())
   updatedAt                 DateTime              @updatedAt
@@ -121,6 +156,7 @@ model User {
   defaultOwnedTemplateTasks TemplateTask[]        @relation("TemplateTaskDefaultOwner")
   taskNotes                 TaskNote[]            @relation("TaskNoteAuthor")
   sessions                  UserSession[]
+  auditLogs                 AuditLog[]
 
   @@index([isActive, name])
 }
@@ -235,6 +271,7 @@ model PeriodInstance {
   rolledForwardPeriods  PeriodInstance[] @relation("PeriodRollforward")
   taskInstances         TaskInstance[]
   pbcRequestItems       PBCRequestItem[]
+  auditLogs             AuditLog[]
 
   @@unique([clientId, templateId, periodKey])
   @@index([clientId, status])
@@ -277,6 +314,7 @@ model TaskInstance {
   dependentTasks        TaskInstance[] @relation("TaskDependency")
   comments              TaskNote[]
   evidenceLinks         EvidenceLink[]
+  auditLogs             AuditLog[]
 
   @@index([periodInstanceId, status])
   @@index([dueDate])
@@ -376,4 +414,30 @@ model PBCRequestItem {
 
   @@index([clientId, status])
   @@index([periodInstanceId])
+}
+
+model AuditLog {
+  id               String          @id @default(cuid())
+  userId           String?
+  userNameSnapshot String?
+  actionType       AuditActionType
+  entityType       AuditEntityType
+  entityId         String
+  entityLabel      String?
+  clientId         String?
+  periodInstanceId String?
+  taskInstanceId   String?
+  metadataJson     String?
+  createdAt        DateTime        @default(now())
+  user             User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  client           Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  periodInstance   PeriodInstance? @relation(fields: [periodInstanceId], references: [id], onDelete: SetNull)
+  taskInstance     TaskInstance?   @relation(fields: [taskInstanceId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([entityType, createdAt])
+  @@index([clientId, createdAt])
+  @@index([periodInstanceId, createdAt])
+  @@index([taskInstanceId, createdAt])
 }

@@ -2,13 +2,40 @@ import Link from "next/link";
 
 import { uploadImportAction } from "@/app/actions";
 import { Button, Field, Input, PageHeader, Panel, Select } from "@/components/ui";
+import {
+  accessibleClientIdsForUser,
+  isAdmin,
+  isManagerOrAdmin,
+  requireUser,
+} from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 export default async function ImportsPage() {
+  const currentUser = await requireUser();
+  if (!isManagerOrAdmin(currentUser)) {
+    return (
+      <div className="space-y-6 py-2">
+        <PageHeader
+          title="Imports"
+          description="Imports are available to managers and admins."
+        />
+      </div>
+    );
+  }
+
+  const accessibleClientIds = await accessibleClientIdsForUser(currentUser);
   const batches = await prisma.importBatch.findMany({
+    where: isAdmin(currentUser)
+      ? undefined
+      : {
+          OR: [
+            { clientId: null },
+            { clientId: { in: accessibleClientIds } },
+          ],
+        },
     include: { client: true },
     orderBy: { createdAt: "desc" },
   });

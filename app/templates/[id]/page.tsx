@@ -9,6 +9,7 @@ import {
 } from "@/app/actions";
 import { ClientActionButton } from "@/components/client-action-button";
 import { Button, Field, Input, PageHeader, Panel, Select, TextArea } from "@/components/ui";
+import { isAdmin, isManagerOrAdmin, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export default async function TemplateDetailPage({
@@ -17,6 +18,8 @@ export default async function TemplateDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const currentUser = await requireUser();
+  if (!isManagerOrAdmin(currentUser)) notFound();
   const [template, users] = await Promise.all([
     prisma.workflowTemplate.findUnique({
       where: { id },
@@ -40,18 +43,21 @@ export default async function TemplateDetailPage({
         title={template.name}
         description="Edit the template definition and maintain the reusable checklist task set."
         action={
-          <form action={deleteTemplateAction}>
-            <input type="hidden" name="id" value={template.id} />
-            <ClientActionButton
-              actionLabel="Delete Template"
-              variant="danger"
-              confirmMessage="Delete this template? If it has already been used to generate periods, deletion will be blocked."
-            />
-          </form>
+          isAdmin(currentUser) ? (
+            <form action={deleteTemplateAction}>
+              <input type="hidden" name="id" value={template.id} />
+              <ClientActionButton
+                actionLabel="Delete Template"
+                variant="danger"
+                confirmMessage="Delete this template? If it has already been used to generate periods, deletion will be blocked."
+              />
+            </form>
+          ) : null
         }
       />
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.35fr]">
+        {isAdmin(currentUser) ? (
         <Panel title="Template Settings" subtitle="High-level controls used during period generation.">
           <form action={updateTemplateAction} className="grid gap-4">
             <input type="hidden" name="id" value={template.id} />
@@ -82,7 +88,17 @@ export default async function TemplateDetailPage({
             <Button type="submit">Save Template</Button>
           </form>
         </Panel>
+        ) : (
+        <Panel title="Template Settings" subtitle="Template definitions are visible here, but editing is limited to administrators.">
+          <div className="space-y-3 text-sm text-slate-600">
+            <p><span className="font-medium text-slate-950">Workflow type:</span> {template.workflowType.replaceAll("_", " ")}</p>
+            <p><span className="font-medium text-slate-950">Recurrence:</span> {template.recurrenceType.replaceAll("_", " ")}</p>
+            <p><span className="font-medium text-slate-950">Description:</span> {template.description || "No description yet."}</p>
+          </div>
+        </Panel>
+        )}
 
+        {isAdmin(currentUser) ? (
         <Panel title="Add Template Task" subtitle="Define defaults, due rules, dependencies, and carryforward behavior.">
           <form action={createTemplateTaskAction} className="grid gap-4 md:grid-cols-2">
             <input type="hidden" name="templateId" value={template.id} />
@@ -190,6 +206,11 @@ export default async function TemplateDetailPage({
             </div>
           </form>
         </Panel>
+        ) : (
+        <Panel title="Template Task Rules" subtitle="Admins manage the reusable checklist structure for this workflow.">
+          <p className="text-sm text-slate-600">You can review the task defaults below, but only administrators can change them.</p>
+        </Panel>
+        )}
       </div>
 
       <Panel title="Template Tasks" subtitle="Edit or remove reusable checklist tasks before they are generated into future periods.">
@@ -203,17 +224,20 @@ export default async function TemplateDetailPage({
                     {task.category || "General"} - {task.defaultOwner || "Unassigned"} - Order {task.sortOrder}
                   </p>
                 </div>
-                <form action={deleteTemplateTaskAction}>
-                  <input type="hidden" name="id" value={task.id} />
-                  <input type="hidden" name="templateId" value={template.id} />
-                  <ClientActionButton
-                    actionLabel="Delete Task"
-                    variant="danger"
-                    confirmMessage="Delete this template task? Tasks that depend on it will have their dependency cleared."
-                  />
-                </form>
+                {isAdmin(currentUser) ? (
+                  <form action={deleteTemplateTaskAction}>
+                    <input type="hidden" name="id" value={task.id} />
+                    <input type="hidden" name="templateId" value={template.id} />
+                    <ClientActionButton
+                      actionLabel="Delete Task"
+                      variant="danger"
+                      confirmMessage="Delete this template task? Tasks that depend on it will have their dependency cleared."
+                    />
+                  </form>
+                ) : null}
               </div>
 
+              {isAdmin(currentUser) ? (
               <form action={updateTemplateTaskAction} className="grid gap-4 md:grid-cols-2">
                 <input type="hidden" name="id" value={task.id} />
                 <input type="hidden" name="templateId" value={template.id} />
@@ -322,6 +346,15 @@ export default async function TemplateDetailPage({
                   <Button type="submit">Save Task Changes</Button>
                 </div>
               </form>
+              ) : (
+              <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-2">
+                <div><span className="font-medium text-slate-950">Default owner:</span> {task.defaultOwner || "Unassigned"}</div>
+                <div><span className="font-medium text-slate-950">Recurrence:</span> {task.recurrenceType.replaceAll("_", " ")}</div>
+                <div><span className="font-medium text-slate-950">Priority:</span> {task.defaultPriority}</div>
+                <div><span className="font-medium text-slate-950">Carryforward:</span> {task.carryforwardBehavior.replaceAll("_", " ")}</div>
+                <div className="md:col-span-2"><span className="font-medium text-slate-950">Description:</span> {task.description || "No description yet."}</div>
+              </div>
+              )}
             </div>
           ))}
         </div>

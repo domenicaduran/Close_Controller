@@ -20,7 +20,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-[#F7F8FA]">
       <div className="mx-auto flex min-h-screen w-full max-w-[1920px] gap-4 px-4 py-4 2xl:max-w-none">
-        <aside className="sticky top-4 h-[calc(100vh-2rem)] w-[17.5rem] rounded-2xl border border-slate-800 bg-slate-900 px-5 py-5 text-slate-100 shadow-[0_8px_24px_rgba(15,23,42,0.16)]">
+        <aside className="sticky top-4 flex h-[calc(100vh-2rem)] w-[17.5rem] flex-col rounded-2xl border border-slate-800 bg-slate-900 px-5 py-5 text-slate-100 shadow-[0_8px_24px_rgba(15,23,42,0.16)]">
           <div className="space-y-2">
             <p className="text-[11px] uppercase tracking-[0.28em] text-slate-400">
               Close Controller
@@ -33,9 +33,11 @@ export async function AppShell({ children }: { children: ReactNode }) {
             </p>
           </div>
 
-          <SidebarNav />
+          <div className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">
+            <SidebarNav role={currentUser.role} />
+          </div>
 
-          <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-800/90 px-4 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.18)]">
+          <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-800/90 px-4 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.18)]">
             <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Current User</p>
             <div className="mt-3 flex items-start gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-600 bg-slate-700 text-sm font-semibold text-white">
@@ -50,7 +52,7 @@ export async function AppShell({ children }: { children: ReactNode }) {
                 <p className="truncate text-sm font-semibold text-white">{currentUser.name}</p>
                 <p className="mt-1 truncate text-xs text-slate-300">{currentUser.email}</p>
                 <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">
-                  {currentUser.title || "Internal team member"}
+                  {currentUser.role} {currentUser.title ? `· ${currentUser.title}` : ""}
                 </p>
               </div>
             </div>

@@ -16,6 +16,7 @@ Close Controller is a local-first web app for recurring accounting operations ac
 - Client management with archive support
 - Internal team accounts with sign-in
 - Client-to-team memberships for collaboration
+- Role-based internal access with `ADMIN`, `MANAGER`, and `STAFF`
 - Reusable workflow templates
 - Template task setup with due date rules, dependencies, carryforward behavior, evidence flags, reviewer flags, and default teammates
 - Period generation from templates
@@ -24,6 +25,7 @@ Close Controller is a local-first web app for recurring accounting operations ac
 - Audit PBC tracking by client and period
 - CSV/XLSX import preview, column mapping, validation, and commit flow
 - Demo seed data
+- Audit log page for key workflow and admin changes
 - Sample import files in `sample-data/`
 
 ## Local setup
@@ -72,9 +74,9 @@ npm run dev
 
 9. Sign in with one of the seeded internal users:
 
-- `dedhern@gmail.com` / `CloseController1`
-- `alex@closecontroller.local` / `CloseController1`
-- `jordan@closecontroller.local` / `CloseController1`
+- `dedhern@gmail.com` / `CloseController1` (`ADMIN`)
+- `alex@closecontroller.local` / `CloseController1` (`MANAGER`)
+- `jordan@closecontroller.local` / `CloseController1` (`STAFF`)
 
 8. Production verification:
 
@@ -137,12 +139,19 @@ Supported mapping examples include:
 
 - `/` dashboard
 - `/clients` clients and assignments
-- `/team` internal users and collaboration setup
-- `/templates` template library
+- `/team` internal users and collaboration setup (`ADMIN`)
+- `/templates` template library (`ADMIN` and `MANAGER`)
 - `/periods` period generation and register
 - `/periods/[id]` task detail and rollforward
-- `/imports` file upload and import history
+- `/imports` file upload and import history (`ADMIN` and `MANAGER`)
 - `/imports/[id]` mapping, validation, and commit
+- `/audit-log` audit history (`ADMIN`)
+
+## Roles
+
+- `ADMIN`: full access, including team management, client access, templates, imports, and audit history
+- `MANAGER`: operational control for assigned clients, including periods, imports, and manual task creation
+- `STAFF`: execution-focused access for assigned clients, including task updates, comments, and evidence
 
 ## Sample files
 

@@ -1,6 +1,8 @@
 "use server";
 
 import {
+  AuditActionType,
+  AuditEntityType,
   CarryforwardBehavior,
   ImportStatus,
   ImportType,
@@ -23,13 +25,20 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  accessibleClientIdsForUser,
+  isAdmin,
   clearSession,
   createSession,
   findUserByOwnerLabel,
+  requireAdmin,
+  requireClientAccess,
+  requireClientManagementAccess,
+  requireManagerOrAdmin,
   hashPassword,
   requireUser,
   verifyPassword,
 } from "@/lib/auth";
+import { createAuditLog } from "@/lib/audit";
 import {
   normalizePBCStatus,
   normalizePriority,
@@ -109,6 +118,7 @@ export async function bootstrapUserAction(formData: FormData) {
     name: stringValue(formData, "name"),
     email: stringValue(formData, "email"),
     title: optionalString(formData, "title"),
+    role: "ADMIN",
     password: stringValue(formData, "password"),
   });
 
@@ -121,6 +131,7 @@ export async function bootstrapUserAction(formData: FormData) {
       name: parsed.data.name,
       email: parsed.data.email.toLowerCase(),
       title: parsed.data.title ?? null,
+      role: parsed.data.role as never,
       passwordHash: hashPassword(parsed.data.password),
     },
   });
@@ -148,6 +159,16 @@ export async function loginAction(formData: FormData) {
   }
 
   await createSession(user.id);
+  await createAuditLog({
+    user,
+    actionType: AuditActionType.SIGNED_IN,
+    entityType: AuditEntityType.SESSION,
+    entityId: user.id,
+    entityLabel: user.email,
+    metadata: {
+      email: user.email,
+    },
+  });
   redirect("/");
 }
 
@@ -157,25 +178,39 @@ export async function logoutAction() {
 }
 
 export async function createUserAction(formData: FormData) {
-  await requireUser();
+  const currentUser = await requireAdmin();
 
   const parsed = userSchema.safeParse({
     name: stringValue(formData, "name"),
     email: stringValue(formData, "email"),
     title: optionalString(formData, "title"),
     password: stringValue(formData, "password"),
+    role: stringValue(formData, "role"),
   });
 
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Could not create team member.");
   }
 
-  await prisma.user.create({
+  const createdUser = await prisma.user.create({
     data: {
       name: parsed.data.name,
       email: parsed.data.email.toLowerCase(),
       title: parsed.data.title ?? null,
+      role: parsed.data.role as never,
       passwordHash: hashPassword(parsed.data.password),
+    },
+  });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.CREATED,
+    entityType: AuditEntityType.USER,
+    entityId: createdUser.id,
+    entityLabel: createdUser.name,
+    metadata: {
+      email: createdUser.email,
+      role: createdUser.role,
     },
   });
 
@@ -184,7 +219,7 @@ export async function createUserAction(formData: FormData) {
 }
 
 export async function updateUserAction(formData: FormData) {
-  await requireUser();
+  const currentUser = await requireAdmin();
 
   const id = stringValue(formData, "id");
   const name = stringValue(formData, "name");
@@ -192,18 +227,33 @@ export async function updateUserAction(formData: FormData) {
   const title = optionalString(formData, "title");
   const password = optionalString(formData, "password");
   const isActive = stringValue(formData, "isActive") === "true";
+  const role = stringValue(formData, "role");
 
   if (!name) throw new Error("Name is required.");
   if (!email) throw new Error("Email is required.");
 
-  await prisma.user.update({
+  const updatedUser = await prisma.user.update({
     where: { id },
     data: {
       name,
       email,
       title: title ?? null,
       isActive,
+      role: role as never,
       ...(password ? { passwordHash: hashPassword(password) } : {}),
+    },
+  });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.UPDATED,
+    entityType: AuditEntityType.USER,
+    entityId: updatedUser.id,
+    entityLabel: updatedUser.name,
+    metadata: {
+      email: updatedUser.email,
+      role: updatedUser.role,
+      passwordReset: Boolean(password),
     },
   });
 
@@ -213,7 +263,7 @@ export async function updateUserAction(formData: FormData) {
 }
 
 export async function toggleUserArchiveAction(formData: FormData) {
-  const currentUser = await requireUser();
+  const currentUser = await requireAdmin();
   const id = stringValue(formData, "id");
   const isActive = stringValue(formData, "isActive") === "true";
 
@@ -221,9 +271,21 @@ export async function toggleUserArchiveAction(formData: FormData) {
     throw new Error("You cannot archive the account you are currently using.");
   }
 
-  await prisma.user.update({
+  const updatedUser = await prisma.user.update({
     where: { id },
     data: { isActive: !isActive },
+  });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: isActive ? AuditActionType.ARCHIVED : AuditActionType.RESTORED,
+    entityType: AuditEntityType.USER,
+    entityId: updatedUser.id,
+    entityLabel: updatedUser.name,
+    metadata: {
+      email: updatedUser.email,
+      isActive: updatedUser.isActive,
+    },
   });
 
   revalidatePath("/team");
@@ -232,15 +294,31 @@ export async function toggleUserArchiveAction(formData: FormData) {
 }
 
 export async function deleteUserAction(formData: FormData) {
-  const currentUser = await requireUser();
+  const currentUser = await requireAdmin();
   const id = stringValue(formData, "id");
 
   if (currentUser.id === id) {
     throw new Error("You cannot delete the account you are currently using.");
   }
 
+  const userToDelete = await prisma.user.findUniqueOrThrow({
+    where: { id },
+    select: { id: true, name: true, email: true },
+  });
+
   await prisma.user.delete({
     where: { id },
+  });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.DELETED,
+    entityType: AuditEntityType.USER,
+    entityId: userToDelete.id,
+    entityLabel: userToDelete.name,
+    metadata: {
+      email: userToDelete.email,
+    },
   });
 
   revalidatePath("/team");
@@ -249,13 +327,13 @@ export async function deleteUserAction(formData: FormData) {
 }
 
 export async function assignUserToClientAction(formData: FormData) {
-  await requireUser();
+  const currentUser = await requireAdmin();
 
   const clientId = stringValue(formData, "clientId");
   const userId = stringValue(formData, "userId");
   const roleLabel = optionalString(formData, "roleLabel");
 
-  await prisma.clientUserAccess.upsert({
+  const membership = await prisma.clientUserAccess.upsert({
     where: {
       clientId_userId: {
         clientId,
@@ -272,15 +350,39 @@ export async function assignUserToClientAction(formData: FormData) {
     },
   });
 
+  const [client, user] = await Promise.all([
+    prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { name: true } }),
+    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true } }),
+  ]);
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.ASSIGNED,
+    entityType: AuditEntityType.TEAM_MEMBERSHIP,
+    entityId: membership.id,
+    entityLabel: `${user.name} -> ${client.name}`,
+    clientId,
+    metadata: {
+      clientName: client.name,
+      userName: user.name,
+      roleLabel: roleLabel ?? null,
+    },
+  });
+
   revalidatePath(`/clients/${clientId}`);
   revalidatePath("/team");
 }
 
 export async function removeUserFromClientAction(formData: FormData) {
-  await requireUser();
+  const currentUser = await requireAdmin();
 
   const clientId = stringValue(formData, "clientId");
   const userId = stringValue(formData, "userId");
+
+  const [client, user] = await Promise.all([
+    prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { name: true } }),
+    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true } }),
+  ]);
 
   await prisma.clientUserAccess.delete({
     where: {
@@ -291,11 +393,25 @@ export async function removeUserFromClientAction(formData: FormData) {
     },
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.UNASSIGNED,
+    entityType: AuditEntityType.TEAM_MEMBERSHIP,
+    entityId: `${clientId}:${userId}`,
+    entityLabel: `${user.name} -> ${client.name}`,
+    clientId,
+    metadata: {
+      clientName: client.name,
+      userName: user.name,
+    },
+  });
+
   revalidatePath(`/clients/${clientId}`);
   revalidatePath("/team");
 }
 
 export async function createClientAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const parsed = clientSchema.safeParse({
     name: stringValue(formData, "name"),
     code: optionalString(formData, "code"),
@@ -308,12 +424,22 @@ export async function createClientAction(formData: FormData) {
     throw new Error(parsed.error.issues[0]?.message ?? "Could not create client.");
   }
 
-  await prisma.client.create({ data: parsed.data });
+  const client = await prisma.client.create({ data: parsed.data });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.CREATED,
+    entityType: AuditEntityType.CLIENT,
+    entityId: client.id,
+    entityLabel: client.name,
+    clientId: client.id,
+  });
   revalidatePath("/clients");
   revalidatePath("/");
 }
 
 export async function updateClientAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const id = stringValue(formData, "id");
   const parsed = clientSchema.safeParse({
     name: stringValue(formData, "name"),
@@ -327,9 +453,18 @@ export async function updateClientAction(formData: FormData) {
     throw new Error(parsed.error.issues[0]?.message ?? "Could not update client.");
   }
 
-  await prisma.client.update({
+  const client = await prisma.client.update({
     where: { id },
     data: parsed.data,
+  });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.UPDATED,
+    entityType: AuditEntityType.CLIENT,
+    entityId: client.id,
+    entityLabel: client.name,
+    clientId: client.id,
   });
 
   revalidatePath("/clients");
@@ -338,12 +473,22 @@ export async function updateClientAction(formData: FormData) {
 }
 
 export async function toggleClientArchiveAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const id = stringValue(formData, "id");
   const isArchived = stringValue(formData, "isArchived") === "true";
 
-  await prisma.client.update({
+  const client = await prisma.client.update({
     where: { id },
     data: { isArchived: !isArchived },
+  });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: isArchived ? AuditActionType.RESTORED : AuditActionType.ARCHIVED,
+    entityType: AuditEntityType.CLIENT,
+    entityId: client.id,
+    entityLabel: client.name,
+    clientId: client.id,
   });
 
   revalidatePath("/clients");
@@ -352,10 +497,25 @@ export async function toggleClientArchiveAction(formData: FormData) {
 }
 
 export async function deleteClientAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const id = stringValue(formData, "id");
+
+  const client = await prisma.client.findUniqueOrThrow({
+    where: { id },
+    select: { id: true, name: true },
+  });
 
   await prisma.client.delete({
     where: { id },
+  });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.DELETED,
+    entityType: AuditEntityType.CLIENT,
+    entityId: client.id,
+    entityLabel: client.name,
+    clientId: client.id,
   });
 
   revalidatePath("/clients");
@@ -387,6 +547,7 @@ export async function createManualTaskAction(formData: FormData) {
     where: { id: parsed.data.periodInstanceId },
     include: { taskInstances: { select: { sortOrder: true } } },
   });
+  const currentUser = await requireClientManagementAccess(period.clientId);
 
   const nextSortOrder =
     Math.max(0, ...period.taskInstances.map((task) => task.sortOrder)) + 10;
@@ -416,6 +577,21 @@ export async function createManualTaskAction(formData: FormData) {
     },
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.CREATED,
+    entityType: AuditEntityType.TASK,
+    entityId: task.id,
+    entityLabel: task.title,
+    clientId: period.clientId,
+    periodInstanceId: period.id,
+    taskInstanceId: task.id,
+    metadata: {
+      sourceType: task.sourceType,
+      status: task.status,
+    },
+  });
+
   revalidatePath("/tasks");
   revalidatePath(`/tasks/${task.id}`);
   revalidatePath(`/periods/${period.id}`);
@@ -425,6 +601,7 @@ export async function createManualTaskAction(formData: FormData) {
 }
 
 export async function bulkUpdateTasksAction(formData: FormData) {
+  const currentUser = await requireManagerOrAdmin();
   const taskIds = formData
     .getAll("taskIds")
     .map((value) => String(value).trim())
@@ -459,8 +636,21 @@ export async function bulkUpdateTasksAction(formData: FormData) {
 
   const selectedTasks = await prisma.taskInstance.findMany({
     where: { id: { in: taskIds } },
-    select: { id: true, periodInstanceId: true, status: true, lastOpenStatus: true },
+    select: {
+      id: true,
+      periodInstanceId: true,
+      status: true,
+      lastOpenStatus: true,
+      periodInstance: { select: { clientId: true } },
+    },
   });
+
+  if (!isAdmin(currentUser)) {
+    const accessibleClientIds = new Set(await accessibleClientIdsForUser(currentUser));
+    if (selectedTasks.some((task) => !accessibleClientIds.has(task.periodInstance.clientId))) {
+      throw new Error("You do not have access to update one or more selected tasks.");
+    }
+  }
 
   if (statusValue) {
     await prisma.$transaction(
@@ -504,6 +694,7 @@ export async function bulkUpdateTasksAction(formData: FormData) {
 }
 
 export async function createTemplateAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const parsed = templateSchema.safeParse({
     name: stringValue(formData, "name"),
     workflowType: stringValue(formData, "workflowType") as WorkflowType,
@@ -519,11 +710,20 @@ export async function createTemplateAction(formData: FormData) {
     data: parsed.data,
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.CREATED,
+    entityType: AuditEntityType.TEMPLATE,
+    entityId: template.id,
+    entityLabel: template.name,
+  });
+
   revalidatePath("/templates");
   redirect(`/templates/${template.id}`);
 }
 
 export async function updateTemplateAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const id = stringValue(formData, "id");
   const parsed = templateSchema.safeParse({
     name: stringValue(formData, "name"),
@@ -536,9 +736,17 @@ export async function updateTemplateAction(formData: FormData) {
     throw new Error(parsed.error.issues[0]?.message ?? "Could not update template.");
   }
 
-  await prisma.workflowTemplate.update({
+  const template = await prisma.workflowTemplate.update({
     where: { id },
     data: parsed.data,
+  });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.UPDATED,
+    entityType: AuditEntityType.TEMPLATE,
+    entityId: template.id,
+    entityLabel: template.name,
   });
 
   revalidatePath("/templates");
@@ -547,7 +755,12 @@ export async function updateTemplateAction(formData: FormData) {
 }
 
 export async function deleteTemplateAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const id = stringValue(formData, "id");
+  const template = await prisma.workflowTemplate.findUniqueOrThrow({
+    where: { id },
+    select: { id: true, name: true },
+  });
 
   try {
     await prisma.workflowTemplate.delete({
@@ -557,6 +770,14 @@ export async function deleteTemplateAction(formData: FormData) {
     throw new Error("This template cannot be deleted because it is already tied to generated periods.");
   }
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.DELETED,
+    entityType: AuditEntityType.TEMPLATE,
+    entityId: template.id,
+    entityLabel: template.name,
+  });
+
   revalidatePath("/templates");
   revalidatePath("/clients");
   revalidatePath("/");
@@ -564,6 +785,7 @@ export async function deleteTemplateAction(formData: FormData) {
 }
 
 export async function assignTemplateToClientAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const clientId = stringValue(formData, "clientId");
   const templateId = stringValue(formData, "templateId");
 
@@ -578,13 +800,37 @@ export async function assignTemplateToClientAction(formData: FormData) {
     create: { clientId, templateId },
   });
 
+  const [client, template] = await Promise.all([
+    prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { name: true } }),
+    prisma.workflowTemplate.findUniqueOrThrow({ where: { id: templateId }, select: { name: true } }),
+  ]);
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.ASSIGNED,
+    entityType: AuditEntityType.TEMPLATE,
+    entityId: templateId,
+    entityLabel: template.name,
+    clientId,
+    metadata: {
+      clientName: client.name,
+      templateName: template.name,
+    },
+  });
+
   revalidatePath(`/clients/${clientId}`);
   revalidatePath("/clients");
 }
 
 export async function removeTemplateAssignmentAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const clientId = stringValue(formData, "clientId");
   const templateId = stringValue(formData, "templateId");
+
+  const [client, template] = await Promise.all([
+    prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { name: true } }),
+    prisma.workflowTemplate.findUniqueOrThrow({ where: { id: templateId }, select: { name: true } }),
+  ]);
 
   await prisma.clientTemplateAssignment.delete({
     where: {
@@ -595,11 +841,25 @@ export async function removeTemplateAssignmentAction(formData: FormData) {
     },
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.UNASSIGNED,
+    entityType: AuditEntityType.TEMPLATE,
+    entityId: templateId,
+    entityLabel: template.name,
+    clientId,
+    metadata: {
+      clientName: client.name,
+      templateName: template.name,
+    },
+  });
+
   revalidatePath(`/clients/${clientId}`);
   revalidatePath("/clients");
 }
 
 export async function createTemplateTaskAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const templateId = stringValue(formData, "templateId");
 
   const parsed = templateTaskSchema.safeParse({
@@ -630,7 +890,7 @@ export async function createTemplateTaskAction(formData: FormData) {
 
   const defaultOwner = await resolveUserChoice(parsed.data.defaultOwnerUserId, parsed.data.defaultOwner);
 
-  await prisma.templateTask.create({
+  const templateTask = await prisma.templateTask.create({
     data: {
       templateId,
       ...parsed.data,
@@ -640,11 +900,23 @@ export async function createTemplateTaskAction(formData: FormData) {
     },
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.CREATED,
+    entityType: AuditEntityType.TEMPLATE_TASK,
+    entityId: templateTask.id,
+    entityLabel: templateTask.title,
+    metadata: {
+      templateId,
+    },
+  });
+
   revalidatePath(`/templates/${templateId}`);
   revalidatePath("/templates");
 }
 
 export async function updateTemplateTaskAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const id = stringValue(formData, "id");
   const templateId = stringValue(formData, "templateId");
 
@@ -676,7 +948,7 @@ export async function updateTemplateTaskAction(formData: FormData) {
 
   const defaultOwner = await resolveUserChoice(parsed.data.defaultOwnerUserId, parsed.data.defaultOwner);
 
-  await prisma.templateTask.update({
+  const templateTask = await prisma.templateTask.update({
     where: { id },
     data: {
       ...parsed.data,
@@ -689,13 +961,29 @@ export async function updateTemplateTaskAction(formData: FormData) {
     },
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.UPDATED,
+    entityType: AuditEntityType.TEMPLATE_TASK,
+    entityId: templateTask.id,
+    entityLabel: templateTask.title,
+    metadata: {
+      templateId,
+    },
+  });
+
   revalidatePath(`/templates/${templateId}`);
   revalidatePath("/templates");
 }
 
 export async function deleteTemplateTaskAction(formData: FormData) {
+  const currentUser = await requireAdmin();
   const id = stringValue(formData, "id");
   const templateId = stringValue(formData, "templateId");
+  const templateTask = await prisma.templateTask.findUniqueOrThrow({
+    where: { id },
+    select: { id: true, title: true },
+  });
 
   await prisma.$transaction([
     prisma.templateTask.updateMany({
@@ -706,6 +994,17 @@ export async function deleteTemplateTaskAction(formData: FormData) {
       where: { id },
     }),
   ]);
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.DELETED,
+    entityType: AuditEntityType.TEMPLATE_TASK,
+    entityId: templateTask.id,
+    entityLabel: templateTask.title,
+    metadata: {
+      templateId,
+    },
+  });
 
   revalidatePath(`/templates/${templateId}`);
   revalidatePath("/templates");
@@ -725,6 +1024,8 @@ export async function createPeriodAction(formData: FormData) {
     throw new Error(parsed.error.issues[0]?.message ?? "Could not create period.");
   }
 
+  const currentUser = await requireClientManagementAccess(parsed.data.clientId);
+
   const period = parsed.data.templateId
     ? await generatePeriodInstance({
         clientId: parsed.data.clientId,
@@ -741,6 +1042,20 @@ export async function createPeriodAction(formData: FormData) {
         periodStart: parseISO(parsed.data.periodStart),
         periodEnd: parseISO(parsed.data.periodEnd),
       });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.CREATED,
+    entityType: AuditEntityType.PERIOD,
+    entityId: period.id,
+    entityLabel: period.label,
+    clientId: period.clientId,
+    periodInstanceId: period.id,
+    metadata: {
+      workflowType: period.workflowType,
+      templateId: period.templateId,
+    },
+  });
 
   revalidatePath("/periods");
   revalidatePath("/");
@@ -763,6 +1078,8 @@ export async function createSuggestedPeriodAction(formData: FormData) {
   if (!basisDateRaw) {
     throw new Error("Basis date is required.");
   }
+
+  const currentUser = await requireClientManagementAccess(clientId);
 
   const basisDate = parseISO(basisDateRaw);
 
@@ -793,6 +1110,21 @@ export async function createSuggestedPeriodAction(formData: FormData) {
     periodEnd,
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.CREATED,
+    entityType: AuditEntityType.PERIOD,
+    entityId: period.id,
+    entityLabel: period.label,
+    clientId: period.clientId,
+    periodInstanceId: period.id,
+    metadata: {
+      workflowType: period.workflowType,
+      templateId: period.templateId,
+      generatedFrom: "suggested",
+    },
+  });
+
   revalidatePath("/periods");
   revalidatePath("/");
   redirect(`/periods/${period.id}`);
@@ -818,6 +1150,7 @@ export async function rollforwardPeriodAction(formData: FormData) {
     where: { id: parsed.data.periodId },
     include: { template: true },
   });
+  const currentUser = await requireClientManagementAccess(sourcePeriod.clientId);
 
   const periodStart = parseISO(parsed.data.periodStart);
   const periodEnd = parseISO(parsed.data.periodEnd);
@@ -838,6 +1171,20 @@ export async function rollforwardPeriodAction(formData: FormData) {
     },
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.ROLLED_FORWARD,
+    entityType: AuditEntityType.PERIOD,
+    entityId: period.id,
+    entityLabel: period.label,
+    clientId: period.clientId,
+    periodInstanceId: period.id,
+    metadata: {
+      sourcePeriodId: sourcePeriod.id,
+      sourcePeriodLabel: sourcePeriod.label,
+    },
+  });
+
   revalidatePath("/periods");
   revalidatePath(`/periods/${sourcePeriod.id}`);
   revalidatePath("/");
@@ -848,14 +1195,144 @@ export async function setPeriodStatusAction(formData: FormData) {
   const id = stringValue(formData, "id");
   const status = stringValue(formData, "status");
 
+  const currentPeriod = await prisma.periodInstance.findUniqueOrThrow({
+    where: { id },
+    select: { id: true, label: true, status: true, clientId: true },
+  });
+  const currentUser = await requireClientManagementAccess(currentPeriod.clientId);
+
   await prisma.periodInstance.update({
     where: { id },
     data: { status: status as never },
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.STATUS_CHANGED,
+    entityType: AuditEntityType.PERIOD,
+    entityId: currentPeriod.id,
+    entityLabel: currentPeriod.label,
+    clientId: currentPeriod.clientId,
+    periodInstanceId: currentPeriod.id,
+    metadata: {
+      from: currentPeriod.status,
+      to: status,
+    },
+  });
+
   revalidatePath(`/periods/${id}`);
   revalidatePath("/periods");
   revalidatePath("/");
+}
+
+export async function togglePeriodArchiveAction(formData: FormData) {
+  const id = stringValue(formData, "id");
+  const currentStatus = stringValue(formData, "currentStatus");
+  const nextStatus = currentStatus === "ARCHIVED" ? "OPEN" : "ARCHIVED";
+
+  const period = await prisma.periodInstance.findUniqueOrThrow({
+    where: { id },
+    select: { id: true, label: true, clientId: true },
+  });
+  const currentUser = await requireClientManagementAccess(period.clientId);
+
+  await prisma.periodInstance.update({
+    where: { id },
+    data: { status: nextStatus as never },
+  });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: currentStatus === "ARCHIVED" ? AuditActionType.RESTORED : AuditActionType.ARCHIVED,
+    entityType: AuditEntityType.PERIOD,
+    entityId: period.id,
+    entityLabel: period.label,
+    clientId: period.clientId,
+    periodInstanceId: period.id,
+  });
+
+  revalidatePath("/periods");
+  revalidatePath(`/periods/${id}`);
+  revalidatePath("/tasks");
+  revalidatePath("/");
+}
+
+export async function deletePeriodAction(formData: FormData) {
+  const id = stringValue(formData, "id");
+
+  const period = await prisma.periodInstance.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      label: true,
+      clientId: true,
+      sourcePeriodId: true,
+      taskInstances: {
+        select: { id: true },
+      },
+    },
+  });
+
+  if (!period) {
+    throw new Error("Period not found.");
+  }
+  const currentUser = await requireClientManagementAccess(period.clientId);
+
+  const taskIds = period.taskInstances.map((task) => task.id);
+
+  await prisma.$transaction(async (tx) => {
+    if (taskIds.length > 0) {
+      await tx.taskInstance.updateMany({
+        where: {
+          carryforwardFromTaskId: { in: taskIds },
+        },
+        data: {
+          carryforwardFromTaskId: null,
+        },
+      });
+
+      await tx.taskInstance.updateMany({
+        where: {
+          dependencyTaskId: { in: taskIds },
+        },
+        data: {
+          dependencyTaskId: null,
+        },
+      });
+    }
+
+    await tx.periodInstance.updateMany({
+      where: { sourcePeriodId: id },
+      data: { sourcePeriodId: null },
+    });
+
+    await tx.pBCRequestItem.deleteMany({
+      where: { periodInstanceId: id },
+    });
+
+    await tx.periodInstance.delete({
+      where: { id },
+    });
+  });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.DELETED,
+    entityType: AuditEntityType.PERIOD,
+    entityId: period.id,
+    entityLabel: period.label,
+    clientId: period.clientId,
+    periodInstanceId: period.id,
+    metadata: {
+      sourcePeriodId: period.sourcePeriodId,
+    },
+  });
+
+  revalidatePath("/periods");
+  revalidatePath(`/periods/${id}`);
+  revalidatePath("/tasks");
+  revalidatePath("/");
+  redirect("/periods");
 }
 
 export async function updateTaskStatusAction(formData: FormData) {
@@ -865,8 +1342,15 @@ export async function updateTaskStatusAction(formData: FormData) {
 
   const task = await prisma.taskInstance.findUniqueOrThrow({
     where: { id },
-    select: { status: true, lastOpenStatus: true },
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      lastOpenStatus: true,
+      periodInstance: { select: { clientId: true } },
+    },
   });
+  const currentUser = await requireClientAccess(task.periodInstance.clientId);
 
   await prisma.taskInstance.update({
     where: { id },
@@ -882,6 +1366,21 @@ export async function updateTaskStatusAction(formData: FormData) {
     },
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.STATUS_CHANGED,
+    entityType: AuditEntityType.TASK,
+    entityId: task.id,
+    entityLabel: task.title,
+    clientId: task.periodInstance.clientId,
+    periodInstanceId: periodId,
+    taskInstanceId: task.id,
+    metadata: {
+      from: task.status,
+      to: status,
+    },
+  });
+
   revalidatePath(`/periods/${periodId}`);
   revalidatePath("/periods");
   revalidatePath("/tasks");
@@ -894,8 +1393,15 @@ export async function toggleTaskCompletionAction(formData: FormData) {
 
   const task = await prisma.taskInstance.findUniqueOrThrow({
     where: { id },
-    select: { status: true, lastOpenStatus: true },
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      lastOpenStatus: true,
+      periodInstance: { select: { clientId: true } },
+    },
   });
+  const currentUser = await requireClientAccess(task.periodInstance.clientId);
 
   const restoring = task.status === TaskStatus.COMPLETE;
   const restoredStatus = task.lastOpenStatus ?? TaskStatus.NOT_STARTED;
@@ -915,6 +1421,21 @@ export async function toggleTaskCompletionAction(formData: FormData) {
         },
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.STATUS_CHANGED,
+    entityType: AuditEntityType.TASK,
+    entityId: task.id,
+    entityLabel: task.title,
+    clientId: task.periodInstance.clientId,
+    periodInstanceId: periodId,
+    taskInstanceId: task.id,
+    metadata: {
+      from: task.status,
+      to: restoring ? restoredStatus : TaskStatus.COMPLETE,
+    },
+  });
+
   revalidatePath(`/periods/${periodId}`);
   revalidatePath("/periods");
   revalidatePath("/tasks");
@@ -925,6 +1446,15 @@ export async function toggleTaskCompletionAction(formData: FormData) {
 export async function updateTaskDetailsAction(formData: FormData) {
   const id = stringValue(formData, "id");
   const periodId = stringValue(formData, "periodId");
+  const task = await prisma.taskInstance.findUniqueOrThrow({
+    where: { id },
+    select: {
+      id: true,
+      title: true,
+      periodInstance: { select: { clientId: true } },
+    },
+  });
+  const currentUser = await requireClientAccess(task.periodInstance.clientId);
   const assignment = await resolveUserChoice(
     optionalString(formData, "assigneeUserId"),
     optionalString(formData, "assignee"),
@@ -948,6 +1478,17 @@ export async function updateTaskDetailsAction(formData: FormData) {
     },
   });
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.UPDATED,
+    entityType: AuditEntityType.TASK,
+    entityId: task.id,
+    entityLabel: task.title,
+    clientId: task.periodInstance.clientId,
+    periodInstanceId: periodId,
+    taskInstanceId: task.id,
+  });
+
   revalidatePath(`/periods/${periodId}`);
   revalidatePath("/periods");
 }
@@ -955,6 +1496,15 @@ export async function updateTaskDetailsAction(formData: FormData) {
 export async function deleteTaskAction(formData: FormData) {
   const id = stringValue(formData, "id");
   const periodId = stringValue(formData, "periodId");
+  const task = await prisma.taskInstance.findUniqueOrThrow({
+    where: { id },
+    select: {
+      id: true,
+      title: true,
+      periodInstance: { select: { clientId: true } },
+    },
+  });
+  const currentUser = await requireClientManagementAccess(task.periodInstance.clientId);
 
   await prisma.$transaction([
     prisma.taskInstance.updateMany({
@@ -970,6 +1520,17 @@ export async function deleteTaskAction(formData: FormData) {
     }),
   ]);
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.DELETED,
+    entityType: AuditEntityType.TASK,
+    entityId: task.id,
+    entityLabel: task.title,
+    clientId: task.periodInstance.clientId,
+    periodInstanceId: periodId,
+    taskInstanceId: task.id,
+  });
+
   revalidatePath("/tasks");
   revalidatePath(`/periods/${periodId}`);
   revalidatePath("/periods");
@@ -984,14 +1545,39 @@ export async function addTaskCommentAction(formData: FormData) {
 
   if (!body) return;
 
+  const task = await prisma.taskInstance.findUniqueOrThrow({
+    where: { id: taskInstanceId },
+    select: {
+      id: true,
+      title: true,
+      periodInstance: { select: { clientId: true } },
+    },
+  });
+  await requireClientAccess(task.periodInstance.clientId);
+
   await prisma.taskNote.create({
     data: { taskInstanceId, body, authorUserId: user.id },
+  });
+
+  await createAuditLog({
+    user,
+    actionType: AuditActionType.UPDATED,
+    entityType: AuditEntityType.TASK,
+    entityId: task.id,
+    entityLabel: task.title,
+    clientId: task.periodInstance.clientId,
+    periodInstanceId: periodId,
+    taskInstanceId: task.id,
+    metadata: {
+      added: "comment",
+    },
   });
 
   revalidatePath(`/periods/${periodId}`);
 }
 
 export async function addEvidenceLinkAction(formData: FormData) {
+  const user = await requireUser();
   const taskInstanceId = stringValue(formData, "taskInstanceId");
   const periodId = stringValue(formData, "periodId");
   const label = stringValue(formData, "label");
@@ -999,14 +1585,40 @@ export async function addEvidenceLinkAction(formData: FormData) {
 
   if (!label || !url) return;
 
+  const task = await prisma.taskInstance.findUniqueOrThrow({
+    where: { id: taskInstanceId },
+    select: {
+      id: true,
+      title: true,
+      periodInstance: { select: { clientId: true } },
+    },
+  });
+  await requireClientAccess(task.periodInstance.clientId);
+
   await prisma.evidenceLink.create({
     data: { taskInstanceId, label, url },
+  });
+
+  await createAuditLog({
+    user,
+    actionType: AuditActionType.UPDATED,
+    entityType: AuditEntityType.TASK,
+    entityId: task.id,
+    entityLabel: task.title,
+    clientId: task.periodInstance.clientId,
+    periodInstanceId: periodId,
+    taskInstanceId: task.id,
+    metadata: {
+      added: "evidenceLink",
+      label,
+    },
   });
 
   revalidatePath(`/periods/${periodId}`);
 }
 
 export async function uploadImportAction(formData: FormData) {
+  const currentUser = await requireManagerOrAdmin();
   const parsed = importUploadSchema.safeParse({
     importType: stringValue(formData, "importType") as ImportType,
   });
@@ -1066,11 +1678,24 @@ export async function uploadImportAction(formData: FormData) {
     });
   }
 
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.CREATED,
+    entityType: AuditEntityType.IMPORT_BATCH,
+    entityId: batch.id,
+    entityLabel: batch.fileName,
+    metadata: {
+      importType: batch.importType,
+      status: batch.status,
+    },
+  });
+
   revalidatePath("/imports");
   redirect(`/imports/${batch.id}`);
 }
 
 export async function saveImportMappingAction(formData: FormData) {
+  await requireManagerOrAdmin();
   const batchId = stringValue(formData, "batchId");
   const savePresetName = optionalString(formData, "presetName");
   const applyPresetId = optionalString(formData, "applyPresetId");
@@ -1157,6 +1782,7 @@ export async function saveImportMappingAction(formData: FormData) {
 }
 
 export async function commitImportBatchAction(formData: FormData) {
+  const currentUser = await requireManagerOrAdmin();
   const batchId = stringValue(formData, "batchId");
   const clientId = optionalString(formData, "clientId");
   const periodInstanceId = optionalString(formData, "periodInstanceId");
@@ -1168,6 +1794,10 @@ export async function commitImportBatchAction(formData: FormData) {
     where: { id: batchId },
     include: { rows: { orderBy: { rowNumber: "asc" } } },
   });
+
+  if (clientId) {
+    await requireClientManagementAccess(clientId);
+  }
 
   const mapping = JSON.parse(batch.columnMappingJson ?? "{}") as Record<string, string>;
   const rawRows = batch.rows.map((row) => JSON.parse(row.rawJson) as Record<string, string>);
@@ -1284,6 +1914,20 @@ export async function commitImportBatchAction(formData: FormData) {
         validationJson: JSON.stringify(validation.errors),
       },
     });
+  });
+
+  await createAuditLog({
+    user: currentUser,
+    actionType: AuditActionType.IMPORTED,
+    entityType: AuditEntityType.IMPORT_BATCH,
+    entityId: batch.id,
+    entityLabel: batch.fileName,
+    clientId: clientId ?? undefined,
+    periodInstanceId: periodInstanceId ?? undefined,
+    metadata: {
+      importType: batch.importType,
+      validRows: validRows.length,
+    },
   });
 
   revalidatePath("/imports");

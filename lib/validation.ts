@@ -1,4 +1,4 @@
-import { ImportType, Priority, RecurrenceType, TaskStatus, WorkflowType } from "@prisma/client";
+import { ImportType, Priority, RecurrenceType, TaskStatus, UserRole, WorkflowType } from "@prisma/client";
 import { z } from "zod";
 
 export const clientSchema = z.object({
@@ -13,6 +13,7 @@ export const userSchema = z.object({
   name: z.string().min(1, "Name is required."),
   email: z.string().email("Email must be valid."),
   title: z.string().optional(),
+  role: z.nativeEnum(UserRole),
   password: z.string().min(8, "Password must be at least 8 characters."),
 });
 

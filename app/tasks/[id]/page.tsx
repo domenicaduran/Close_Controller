@@ -21,6 +21,12 @@ import {
   buttonStyles,
 } from "@/components/ui";
 import { formatDate, formatDateTime } from "@/lib/format";
+import {
+  accessibleClientIdsForUser,
+  isAdmin,
+  isManagerOrAdmin,
+  requireUser,
+} from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +37,8 @@ export default async function TaskDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const currentUser = await requireUser();
+  const accessibleClientIds = await accessibleClientIdsForUser(currentUser);
 
   const [task, users] = await Promise.all([
     prisma.taskInstance.findUnique({
@@ -51,12 +59,22 @@ export default async function TaskDetailPage({
       },
     }),
     prisma.user.findMany({
-      where: { isActive: true },
+      where: isAdmin(currentUser)
+        ? { isActive: true }
+        : {
+            isActive: true,
+            clientAccess: {
+              some: {
+                clientId: { in: accessibleClientIds },
+              },
+            },
+          },
       orderBy: { name: "asc" },
     }),
   ]);
 
   if (!task) notFound();
+  if (!isAdmin(currentUser) && !accessibleClientIds.includes(task.periodInstance.client.id)) notFound();
 
   return (
     <div className="space-y-6 py-2">
@@ -122,15 +140,17 @@ export default async function TaskDetailPage({
               <Button type="submit">Save Status</Button>
             </form>
 
-            <form action={deleteTaskAction}>
-              <input type="hidden" name="id" value={task.id} />
-              <input type="hidden" name="periodId" value={task.periodInstance.id} />
-              <ClientActionButton
-                actionLabel="Delete Task"
-                variant="danger"
-                confirmMessage="Delete this task? This will also remove related notes and evidence links. Carryforward and dependency references will be cleared."
-              />
-            </form>
+            {isManagerOrAdmin(currentUser) ? (
+              <form action={deleteTaskAction}>
+                <input type="hidden" name="id" value={task.id} />
+                <input type="hidden" name="periodId" value={task.periodInstance.id} />
+                <ClientActionButton
+                  actionLabel="Delete Task"
+                  variant="danger"
+                  confirmMessage="Delete this task? This will also remove related notes and evidence links. Carryforward and dependency references will be cleared."
+                />
+              </form>
+            ) : null}
           </div>
         </Panel>
 

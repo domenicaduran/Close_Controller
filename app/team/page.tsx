@@ -1,14 +1,18 @@
 import Link from "next/link";
+import { UserRole } from "@prisma/client";
 
 import { createUserAction, deleteUserAction, toggleUserArchiveAction, updateUserAction } from "@/app/actions";
 import { ClientActionButton } from "@/components/client-action-button";
 import { FormSubmitButton } from "@/components/form-submit-button";
-import { Button, Field, Input, PageHeader, Panel } from "@/components/ui";
+import { Button, Field, Input, PageHeader, Panel, Select } from "@/components/ui";
+import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 export default async function TeamPage() {
+  await requireAdmin();
+
   const [users, clients] = await Promise.all([
     prisma.user.findMany({
       include: {
@@ -52,6 +56,13 @@ export default async function TeamPage() {
             <Field label="Title">
               <Input name="title" placeholder="Senior Accountant" />
             </Field>
+            <Field label="Role">
+              <Select name="role" defaultValue={UserRole.STAFF}>
+                <option value={UserRole.ADMIN}>Admin</option>
+                <option value={UserRole.MANAGER}>Manager</option>
+                <option value={UserRole.STAFF}>Staff</option>
+              </Select>
+            </Field>
             <Field label="Temporary password">
               <Input name="password" type="password" placeholder="At least 8 characters" required />
             </Field>
@@ -79,7 +90,7 @@ export default async function TeamPage() {
                     <td className="px-4 py-3">
                       <div className="font-semibold text-[#1F2937]">{user.name}</div>
                       <div className="text-xs text-[#6B7280]">
-                        {user.title || "Team member"} - {user.email}
+                        {user.role} {user.title ? `- ${user.title}` : ""} - {user.email}
                       </div>
                       {user.clientAccess.length > 0 ? (
                         <div className="mt-2 flex flex-wrap gap-2">
@@ -140,6 +151,13 @@ export default async function TeamPage() {
                           <Field label="Title">
                             <Input name="title" defaultValue={user.title ?? ""} />
                           </Field>
+                          <Field label="Role">
+                            <Select name="role" defaultValue={user.role}>
+                              <option value={UserRole.ADMIN}>Admin</option>
+                              <option value={UserRole.MANAGER}>Manager</option>
+                              <option value={UserRole.STAFF}>Staff</option>
+                            </Select>
+                          </Field>
                           <Field label="Reset password">
                             <Input name="password" type="password" placeholder="Leave blank to keep current password" />
                           </Field>
@@ -182,7 +200,7 @@ export default async function TeamPage() {
                       <td className="px-4 py-3">
                         <div className="font-semibold text-[#1F2937]">{user.name}</div>
                         <div className="text-xs text-[#6B7280]">
-                          {user.title || "Team member"} - {user.email}
+                          {user.role} {user.title ? `- ${user.title}` : ""} - {user.email}
                         </div>
                       </td>
                       <td className="px-4 py-3">{user.clientAccess.length}</td>
@@ -218,6 +236,13 @@ export default async function TeamPage() {
                             </Field>
                             <Field label="Title">
                               <Input name="title" defaultValue={user.title ?? ""} />
+                            </Field>
+                            <Field label="Role">
+                              <Select name="role" defaultValue={user.role}>
+                                <option value={UserRole.ADMIN}>Admin</option>
+                                <option value={UserRole.MANAGER}>Manager</option>
+                                <option value={UserRole.STAFF}>Staff</option>
+                              </Select>
                             </Field>
                             <Field label="Reset password">
                               <Input name="password" type="password" placeholder="Leave blank to keep current password" />

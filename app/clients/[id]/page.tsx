@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { UserRole } from "@prisma/client";
 import {
   assignTemplateToClientAction,
   assignUserToClientAction,
@@ -10,6 +11,12 @@ import {
   updateClientAction,
 } from "@/app/actions";
 import { Button, Field, Input, PageHeader, Panel, Select } from "@/components/ui";
+import {
+  accessibleClientIdsForUser,
+  isAdmin,
+  isManagerOrAdmin,
+  requireUser,
+} from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
@@ -21,6 +28,12 @@ export default async function ClientDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const currentUser = await requireUser();
+  const accessibleClientIds = await accessibleClientIdsForUser(currentUser);
+
+  if (!isAdmin(currentUser) && !accessibleClientIds.includes(id)) {
+    notFound();
+  }
 
   const [client, templates, users] = await Promise.all([
     prisma.client.findUnique({
@@ -46,7 +59,7 @@ export default async function ClientDetailPage({
       orderBy: { name: "asc" },
     }),
     prisma.user.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...(isAdmin(currentUser) ? {} : { role: { in: [UserRole.MANAGER, UserRole.STAFF, UserRole.ADMIN] } }) },
       orderBy: { name: "asc" },
     }),
   ]);
@@ -64,6 +77,7 @@ export default async function ClientDetailPage({
       />
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        {isAdmin(currentUser) ? (
         <Panel title="Client Profile" subtitle="Edit practical operating details for this client.">
           <div className="grid gap-4">
             <form action={updateClientAction} className="grid gap-4">
@@ -96,7 +110,18 @@ export default async function ClientDetailPage({
             </form>
           </div>
         </Panel>
+        ) : (
+        <Panel title="Client Profile" subtitle="Client details and team structure for this engagement.">
+          <div className="space-y-3 text-sm text-[#6B7280]">
+            <p><span className="font-medium text-[#1F2937]">Code:</span> {client.code || "Not set"}</p>
+            <p><span className="font-medium text-[#1F2937]">Industry:</span> {client.industry || "Not set"}</p>
+            <p><span className="font-medium text-[#1F2937]">Primary contact:</span> {client.primaryContact || "Not set"}</p>
+            <p><span className="font-medium text-[#1F2937]">Email:</span> {client.email || "Not set"}</p>
+          </div>
+        </Panel>
+        )}
 
+        {isAdmin(currentUser) ? (
         <Panel title="Template Assignment" subtitle="Attach reusable workflows to this client.">
           <form action={assignTemplateToClientAction} className="flex gap-3">
             <input type="hidden" name="clientId" value={client.id} />
@@ -142,10 +167,31 @@ export default async function ClientDetailPage({
             ))}
           </div>
         </Panel>
+        ) : (
+        <Panel title="Assigned Templates" subtitle="Reusable workflows currently attached to this client.">
+          <div className="mt-1 space-y-3">
+            {client.templateAssignments.map((assignment) => (
+              <div
+                key={assignment.id}
+                className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4"
+              >
+                <div>
+                  <p className="font-semibold text-slate-950">{assignment.template.name}</p>
+                  <p className="text-sm text-slate-600">
+                    {assignment.template.workflowType.replaceAll("_", " ")} ·{" "}
+                    {assignment.template.recurrenceType.replaceAll("_", " ")}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+        )}
       </div>
 
-      <Panel title="Client Team" subtitle="Assign internal teammates to this client so ownership and collaboration stay clear.">
+      <Panel title="Client Team" subtitle="Internal teammates linked to this client engagement.">
         <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+          {isAdmin(currentUser) ? (
           <form action={assignUserToClientAction} className="grid gap-4">
             <input type="hidden" name="clientId" value={client.id} />
             <Field label="Team member">
@@ -165,6 +211,11 @@ export default async function ClientDetailPage({
             </Field>
             <Button type="submit">Assign Team Member</Button>
           </form>
+          ) : (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+            Only administrators can change client access.
+          </div>
+          )}
 
           <div className="space-y-3">
             {client.teamMemberships.length > 0 ? (
@@ -184,16 +235,18 @@ export default async function ClientDetailPage({
                       </p>
                     ) : null}
                   </div>
-                  <form action={removeUserFromClientAction}>
-                    <input type="hidden" name="clientId" value={client.id} />
-                    <input type="hidden" name="userId" value={membership.userId} />
-                    <button
-                      type="submit"
-                      className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-slate-900"
-                    >
-                      Remove
-                    </button>
-                  </form>
+                  {isAdmin(currentUser) ? (
+                    <form action={removeUserFromClientAction}>
+                      <input type="hidden" name="clientId" value={client.id} />
+                      <input type="hidden" name="userId" value={membership.userId} />
+                      <button
+                        type="submit"
+                        className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-slate-900"
+                      >
+                        Remove
+                      </button>
+                    </form>
+                  ) : null}
                 </div>
               ))
             ) : (
@@ -203,6 +256,7 @@ export default async function ClientDetailPage({
         </div>
       </Panel>
 
+      {isManagerOrAdmin(currentUser) ? (
       <Panel
         title="Create Period"
         subtitle="Generate a new workflow period for this client directly from the assigned template list."
@@ -229,6 +283,7 @@ export default async function ClientDetailPage({
           </div>
         </form>
       </Panel>
+      ) : null}
 
       <Panel title="Recent Periods" subtitle="Historical snapshots remain available even after rollforward.">
         <div className="overflow-hidden rounded-2xl border border-slate-200">

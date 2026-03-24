@@ -1,10 +1,13 @@
 import {
+  AuditActionType,
+  AuditEntityType,
   CarryforwardBehavior,
   PBCRequestStatus,
   Priority,
   RecurrenceType,
   TaskSourceType,
   TaskStatus,
+  UserRole,
   WorkflowType,
 } from "@prisma/client";
 import { randomBytes, scryptSync } from "node:crypto";
@@ -20,6 +23,7 @@ function hashPassword(password: string) {
 
 async function main() {
   await prisma.userSession.deleteMany();
+  await prisma.auditLog.deleteMany();
   await prisma.clientUserAccess.deleteMany();
   await prisma.evidenceLink.deleteMany();
   await prisma.taskNote.deleteMany();
@@ -40,6 +44,7 @@ async function main() {
         name: "Domenica Duran",
         email: "dedhern@gmail.com",
         title: "Controller",
+        role: UserRole.ADMIN,
         passwordHash: hashPassword("CloseController1"),
       },
     }),
@@ -48,6 +53,7 @@ async function main() {
         name: "Alex Rivera",
         email: "alex@closecontroller.local",
         title: "Accounting Manager",
+        role: UserRole.MANAGER,
         passwordHash: hashPassword("CloseController1"),
       },
     }),
@@ -56,6 +62,7 @@ async function main() {
         name: "Jordan Lee",
         email: "jordan@closecontroller.local",
         title: "Senior Accountant",
+        role: UserRole.STAFF,
         passwordHash: hashPassword("CloseController1"),
       },
     }),
@@ -357,6 +364,30 @@ async function main() {
       sortOrder: 999,
       templateTaskSnapshot: JSON.stringify({ importBatchId: importedPbcBatch.id }),
     },
+  });
+
+  await prisma.auditLog.createMany({
+    data: [
+      {
+        userId: domenica.id,
+        userNameSnapshot: domenica.name,
+        actionType: AuditActionType.CREATED,
+        entityType: AuditEntityType.CLIENT,
+        entityId: northwind.id,
+        entityLabel: northwind.name,
+        clientId: northwind.id,
+      },
+      {
+        userId: domenica.id,
+        userNameSnapshot: domenica.name,
+        actionType: AuditActionType.CREATED,
+        entityType: AuditEntityType.PERIOD,
+        entityId: marchPeriod.id,
+        entityLabel: marchPeriod.label,
+        clientId: northwind.id,
+        periodInstanceId: marchPeriod.id,
+      },
+    ],
   });
 }
 

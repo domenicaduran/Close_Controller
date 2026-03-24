@@ -3,11 +3,14 @@ import Link from "next/link";
 import { createClientAction, deleteClientAction, toggleClientArchiveAction } from "@/app/actions";
 import { ClientActionButton } from "@/components/client-action-button";
 import { Button, Field, Input, PageHeader, Panel } from "@/components/ui";
+import { accessibleClientIdsForUser, isAdmin, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClientsPage() {
+  const currentUser = await requireUser();
+  const accessibleClientIds = await accessibleClientIdsForUser(currentUser);
   const clients = await prisma.client.findMany({
     include: {
       teamMemberships: true,
@@ -18,6 +21,7 @@ export default async function ClientsPage() {
         where: { status: { not: "ARCHIVED" } },
       },
     },
+    where: isAdmin(currentUser) ? undefined : { id: { in: accessibleClientIds } },
     orderBy: [{ isArchived: "asc" }, { name: "asc" }],
   });
 
@@ -32,6 +36,7 @@ export default async function ClientsPage() {
       />
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.35fr]">
+        {isAdmin(currentUser) ? (
         <Panel title="Add Client" subtitle="Start a new recurring accounting relationship.">
           <form action={createClientAction} className="grid gap-4">
             <Field label="Client name">
@@ -52,6 +57,13 @@ export default async function ClientsPage() {
             <Button type="submit">Create Client</Button>
           </form>
         </Panel>
+        ) : (
+        <Panel title="Client Access" subtitle="Your client list is scoped to the engagements assigned to your team account.">
+          <p className="text-sm leading-6 text-[#6B7280]">
+            Contact an administrator if you need a new client added or your client access updated.
+          </p>
+        </Panel>
+        )}
 
         <Panel title="Client Directory" subtitle="Desktop-optimized view of active client relationships.">
           <div className="overflow-hidden rounded-2xl border border-[#E5E7EB]">
@@ -89,22 +101,26 @@ export default async function ClientsPage() {
                         >
                           Open
                         </Link>
-                        <form action={toggleClientArchiveAction}>
-                          <input type="hidden" name="id" value={client.id} />
-                          <input type="hidden" name="isArchived" value={String(client.isArchived)} />
-                          <ClientActionButton
-                            actionLabel="Archive"
-                            variant="warning"
-                          />
-                        </form>
-                        <form action={deleteClientAction}>
-                          <input type="hidden" name="id" value={client.id} />
-                          <ClientActionButton
-                            actionLabel="Delete"
-                            variant="danger"
-                            confirmMessage="Deleting this client will also delete all related periods, tasks, PBC items, imports, and history for this client. Continue?"
-                          />
-                        </form>
+                        {isAdmin(currentUser) ? (
+                          <>
+                            <form action={toggleClientArchiveAction}>
+                              <input type="hidden" name="id" value={client.id} />
+                              <input type="hidden" name="isArchived" value={String(client.isArchived)} />
+                              <ClientActionButton
+                                actionLabel="Archive"
+                                variant="warning"
+                              />
+                            </form>
+                            <form action={deleteClientAction}>
+                              <input type="hidden" name="id" value={client.id} />
+                              <ClientActionButton
+                                actionLabel="Delete"
+                                variant="danger"
+                                confirmMessage="Deleting this client will also delete all related periods, tasks, PBC items, imports, and history for this client. Continue?"
+                              />
+                            </form>
+                          </>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -157,22 +173,26 @@ export default async function ClientsPage() {
                           >
                             Open
                           </Link>
-                          <form action={toggleClientArchiveAction}>
-                            <input type="hidden" name="id" value={client.id} />
-                            <input type="hidden" name="isArchived" value={String(client.isArchived)} />
-                            <ClientActionButton
-                              actionLabel="Restore"
-                              variant="neutral"
-                            />
-                          </form>
-                          <form action={deleteClientAction}>
-                            <input type="hidden" name="id" value={client.id} />
-                            <ClientActionButton
-                              actionLabel="Delete"
-                              variant="danger"
-                              confirmMessage="Deleting this client will also delete all related periods, tasks, PBC items, imports, and history for this client. Continue?"
-                            />
-                          </form>
+                          {isAdmin(currentUser) ? (
+                            <>
+                              <form action={toggleClientArchiveAction}>
+                                <input type="hidden" name="id" value={client.id} />
+                                <input type="hidden" name="isArchived" value={String(client.isArchived)} />
+                                <ClientActionButton
+                                  actionLabel="Restore"
+                                  variant="neutral"
+                                />
+                              </form>
+                              <form action={deleteClientAction}>
+                                <input type="hidden" name="id" value={client.id} />
+                                <ClientActionButton
+                                  actionLabel="Delete"
+                                  variant="danger"
+                                  confirmMessage="Deleting this client will also delete all related periods, tasks, PBC items, imports, and history for this client. Continue?"
+                                />
+                              </form>
+                            </>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
